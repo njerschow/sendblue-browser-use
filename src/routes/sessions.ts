@@ -71,6 +71,8 @@ const ScriptBody = z.object({
   code: z.string().min(1).max(200_000),
 });
 
+const SCREENSHOT_TIMEOUT_MS = 5_000;
+
 // Mirror Playwright's Cookie shape rather than accepting arbitrary records.
 const CookieSchema = z.object({
   name: z.string(),
@@ -179,8 +181,9 @@ sessionsRoutes.get("/:name/screenshot", async (c) => {
   try {
     const fullPage = c.req.query("fullPage") === "true";
     const selector = c.req.query("selector") ?? undefined;
-    const target = selector ? session.page.locator(selector).first() : session.page;
-    const buffer = await target.screenshot({ fullPage });
+    const buffer = selector
+      ? await session.page.locator(selector).first().screenshot({ timeout: SCREENSHOT_TIMEOUT_MS })
+      : await session.page.screenshot({ fullPage, timeout: SCREENSHOT_TIMEOUT_MS });
     return new Response(buffer as unknown as BodyInit, {
       headers: { "content-type": "image/png", "cache-control": "no-store" },
     });
