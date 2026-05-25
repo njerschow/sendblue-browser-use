@@ -3,7 +3,7 @@
  * screenshots, purges, deletes. Exits non-zero on any failure.
  *
  *   bun install
- *   bun x patchright install chromium
+ *   bun --bun x patchright install chromium
  *   BROWSER_USE_API_KEY=test-key bun test/smoke.ts
  */
 import { mkdirSync } from "node:fs";

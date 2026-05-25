@@ -20,11 +20,13 @@ It runs as its own process — not tied to any one Claude / Cursor / Codex sessi
 
 ## Quick start (local)
 
+Prereqs: Bun `>=1.3` and Node.js `>=20` on your `PATH`.
+
 ```sh
 git clone https://github.com/njerschow/sendblue-browser-use.git
 cd sendblue-browser-use
 bun install
-bun x patchright install chromium
+bun --bun x patchright install chromium
 
 cp .env.example .env
 # generate and set the required token

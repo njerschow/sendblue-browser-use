@@ -6,7 +6,7 @@
   "type": "module",
   "private": false,
   "engines": {
-    "bun": ">=1.1.0",
+    "bun": ">=1.3.0",
     "node": ">=20"
   },
   "scripts": {
@@ -14,7 +14,7 @@
     "start": "bun src/index.ts",
     "smoke": "bun test/smoke.ts",
     "typecheck": "tsc --noEmit",
-    "install-browser": "bun x patchright install chromium"
+    "install-browser": "bun --bun x patchright install chromium"
   },
   "dependencies": {
     "hono": "^4.6.0",
