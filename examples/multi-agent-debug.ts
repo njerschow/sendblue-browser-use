@@ -5,15 +5,26 @@
  *
  *   BROWSER_USE_API_KEY=... bun examples/multi-agent-debug.ts
  */
-const KEY = process.env.BROWSER_USE_API_KEY!;
+const KEY = process.env.BROWSER_USE_API_KEY;
+if (!KEY) throw new Error("set BROWSER_USE_API_KEY");
 const BASE = process.env.BASE ?? "http://127.0.0.1:8787";
 
 const auth = { authorization: `Bearer ${KEY}`, "content-type": "application/json" };
 
+async function requestJson(path: string, init: RequestInit = {}) {
+  const res = await fetch(`${BASE}${path}`, init);
+  const text = await res.text();
+  if (!res.ok) throw new Error(`${init.method ?? "GET"} ${path} -> ${res.status}: ${text}`);
+  return JSON.parse(text);
+}
+
 async function ensure(name: string) {
   const existing = await fetch(`${BASE}/sessions/${name}`, { headers: auth });
   if (existing.status === 200) return;
-  await fetch(`${BASE}/sessions`, {
+  if (existing.status !== 404) {
+    throw new Error(`GET /sessions/${name} -> ${existing.status}: ${await existing.text()}`);
+  }
+  await requestJson("/sessions", {
     method: "POST",
     headers: auth,
     body: JSON.stringify({ name, persistent: true }),
@@ -21,15 +32,16 @@ async function ensure(name: string) {
 }
 
 async function navigate(name: string, url: string) {
-  return fetch(`${BASE}/sessions/${name}/navigate`, {
+  return requestJson(`/sessions/${name}/navigate`, {
     method: "POST",
     headers: auth,
     body: JSON.stringify({ url }),
-  }).then((r) => r.json());
+  });
 }
 
 async function screenshot(name: string, file: string) {
   const res = await fetch(`${BASE}/sessions/${name}/screenshot?fullPage=true`, { headers: auth });
+  if (!res.ok) throw new Error(`GET /sessions/${name}/screenshot -> ${res.status}: ${await res.text()}`);
   const buf = new Uint8Array(await res.arrayBuffer());
   await Bun.write(file, buf);
 }
@@ -47,5 +59,7 @@ await Promise.all([
 ]);
 
 // Wipe agent-a state without losing the session.
-await fetch(`${BASE}/sessions/agent-a/purge`, { method: "POST", headers: auth });
+await requestJson("/sessions/agent-a/purge", { method: "POST", headers: auth });
 console.log("purged agent-a; agent-b is untouched");
+
+export {};

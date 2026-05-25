@@ -36,6 +36,7 @@ export type Session = {
   runsDir: string;
   options: SessionOptions;
   cdpUrl?: string;
+  cdpTargetId?: string;
 };
 
 export type SessionSummary = {
@@ -47,4 +48,5 @@ export type SessionSummary = {
   pageTitle: string | null;
   consoleMessages: number;
   cdpUrl?: string;
+  cdpTargetId?: string;
 };

@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import type { BrowserContext } from "patchright";
+import type { BrowserContext, Page } from "patchright";
 import { chromium } from "patchright";
 import { env } from "./env";
 import { log } from "./lib/logger";
@@ -50,6 +50,20 @@ function profileDir(name: string) {
 
 function runsDir(name: string) {
   return join(env.dataDir, "runs", name);
+}
+
+async function resolveCdpTargetId(context: BrowserContext, page: Page, name: string): Promise<string | undefined> {
+  let cdp: Awaited<ReturnType<BrowserContext["newCDPSession"]>> | undefined;
+  try {
+    cdp = await context.newCDPSession(page);
+    const info = await cdp.send("Target.getTargetInfo") as { targetInfo?: { targetId?: string } };
+    return typeof info.targetInfo?.targetId === "string" ? info.targetInfo.targetId : undefined;
+  } catch (err) {
+    log.warn("cdp_target_id_unavailable", { name, err: String(err) });
+    return undefined;
+  } finally {
+    await cdp?.detach().catch(() => {});
+  }
 }
 
 export function listSessions(): SessionSummary[] {
@@ -112,6 +126,8 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
       await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
     }
 
+    const cdpTargetId = persistent ? undefined : await resolveCdpTargetId(context, page, options.name);
+
     const session: Session = {
       name: options.name,
       persistent,
@@ -124,6 +140,7 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
       runsDir: runsDir(options.name),
       options,
       cdpUrl: persistent ? undefined : (getCdpUrl() ?? undefined),
+      cdpTargetId,
     };
 
     // Capture console messages into a ring buffer.
@@ -243,6 +260,7 @@ function summarise(session: Session): SessionSummary {
     pageTitle: null, // computed lazily where needed; sync read here keeps list fast
     consoleMessages: session.consoleBuffer.length,
     cdpUrl: session.cdpUrl,
+    cdpTargetId: session.cdpTargetId,
   };
 }
 

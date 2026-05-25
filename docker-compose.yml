@@ -7,7 +7,9 @@ services:
     # init: true gives us a PID 1 reaper so Chromium zombies don't pile up.
     init: true
     environment:
-      BROWSER_USE_API_KEY: ${BROWSER_USE_API_KEY:?set BROWSER_USE_API_KEY in .env}
+      # Runtime validation in src/env.ts fails fast if this is empty. Keep the
+      # Compose interpolation non-fatal so `docker compose build/config` works.
+      BROWSER_USE_API_KEY: ${BROWSER_USE_API_KEY:-}
       # Bind 0.0.0.0 inside container so the host port-publish below is reachable.
       # The publish itself is restricted to 127.0.0.1 — never globally exposed.
       BIND: 0.0.0.0

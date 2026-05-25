@@ -8,7 +8,7 @@ JSON="Content-Type: application/json"
 
 curl -fsS -X POST "$BASE/sessions" -H "$TOKEN" -H "$JSON" -d '{"name":"curl-demo"}'
 curl -fsS -X POST "$BASE/sessions/curl-demo/navigate" -H "$TOKEN" -H "$JSON" -d '{"url":"https://example.com"}'
-curl -fsS "$BASE/sessions/curl-demo" -H "$TOKEN" | python3 -m json.tool
+curl -fsS "$BASE/sessions/curl-demo" -H "$TOKEN"
 curl -fsS "$BASE/sessions/curl-demo/screenshot?fullPage=true" -H "$TOKEN" -o /tmp/curl-demo.png
 echo "saved /tmp/curl-demo.png"
 curl -fsS -X POST "$BASE/sessions/curl-demo/purge" -H "$TOKEN"

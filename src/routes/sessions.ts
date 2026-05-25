@@ -145,6 +145,7 @@ sessionsRoutes.get("/:name", async (c) => {
       pageTitle: title,
       consoleMessages: session.consoleBuffer.length,
       cdpUrl: session.cdpUrl,
+      cdpTargetId: session.cdpTargetId,
     });
   } catch (err) {
     return c.json(errBody("session_unreachable", sanitizeBrowserError(err, "session_unreachable")), 502);
@@ -292,5 +293,5 @@ sessionsRoutes.get("/:name/cdp-url", (c) => {
       409,
     );
   }
-  return c.json({ cdpUrl: session.cdpUrl });
+  return c.json({ cdpUrl: session.cdpUrl, targetId: session.cdpTargetId });
 });

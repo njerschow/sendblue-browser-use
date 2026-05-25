@@ -30,6 +30,7 @@
     "src",
     "examples",
     "test",
+    ".dockerignore",
     "Dockerfile",
     "docker-entrypoint.sh",
     "docker-compose.yml",
