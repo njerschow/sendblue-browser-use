@@ -1,0 +1,19 @@
+services:
+  browser-use:
+    build: .
+    image: sendblue-browser-use:latest
+    container_name: sendblue-browser-use
+    restart: unless-stopped
+    environment:
+      BROWSER_USE_API_KEY: ${BROWSER_USE_API_KEY:?set BROWSER_USE_API_KEY in .env}
+      BIND: 0.0.0.0
+      PORT: 8787
+      CDP_PORT: 9222
+      DEFAULT_HEADLESS: ${DEFAULT_HEADLESS:-true}
+      IDLE_SESSION_MINUTES: ${IDLE_SESSION_MINUTES:-120}
+    ports:
+      - "127.0.0.1:8787:8787"
+      - "127.0.0.1:9222:9222"
+    volumes:
+      - ./data:/data
+    shm_size: 1gb

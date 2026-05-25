@@ -1,0 +1,37 @@
+{
+  "name": "sendblue-browser-use",
+  "version": "0.1.0",
+  "description": "Standalone debug browser for agents. Stealth-patched Chromium with a simple HTTP API, persistent sessions, easy purge, and CDP attach for any client.",
+  "license": "MIT",
+  "type": "module",
+  "private": false,
+  "engines": {
+    "bun": ">=1.1.0",
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "smoke": "bun test/smoke.ts",
+    "typecheck": "tsc --noEmit",
+    "install-browser": "bun x patchright install chromium"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "patchright": "^1.49.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  },
+  "files": [
+    "src",
+    "scripts",
+    "Dockerfile",
+    "docker-compose.yml",
+    "README.md",
+    ".env.example"
+  ]
+}
