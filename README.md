@@ -9,7 +9,7 @@ It runs as its own process — not tied to any one Claude / Cursor / Codex sessi
 | Need | What you get |
 |---|---|
 | **Not coupled to a single agent** | Long-running HTTP daemon. Any tool with a bearer token can drive it. |
-| **Doesn't look automated** | Chromium patched via `patchright`: `navigator.webdriver` is hidden, CDP detection vectors are patched, real Chromium binary (no Playwright fingerprints). Passes the typical Cloudflare / hCaptcha / `cmt-detect` checks. |
+| **Doesn't look automated** | Chromium patched via `patchright`: `navigator.webdriver` is hidden, CDP detection vectors are patched, real Chromium binary (no Playwright fingerprints). Passes typical Cloudflare Turnstile and similar low-friction checks; not for hostile scraping at scale. |
 | **Reusable sessions** | Named persistent profiles. Log in once, every subsequent debug run reuses the cookies. |
 | **One-click reset** | `POST /sessions/:name/purge` clears cookies + storage but keeps the session id, so your client code keeps working. |
 | **Multi-agent friendly** | Each session is an isolated `BrowserContext` (or its own profile). Run 5+ debug sessions in parallel without state bleed. |
@@ -27,8 +27,10 @@ bun install
 bun x patchright install chromium
 
 cp .env.example .env
-# generate a token
-echo "BROWSER_USE_API_KEY=$(openssl rand -hex 32)" > .env
+# generate and set the required token
+TOKEN="$(openssl rand -hex 32)"
+sed -i.bak "s/^BROWSER_USE_API_KEY=.*/BROWSER_USE_API_KEY=$TOKEN/" .env
+rm .env.bak
 
 bun run dev
 ```
@@ -77,7 +79,7 @@ All routes require `Authorization: Bearer $BROWSER_USE_API_KEY` except `/health`
 | `POST` | `/sessions` | `{ name, persistent?, headless?, viewport?, userAgent?, locale?, timezone?, traces?, proxy? }` | `{ session }` |
 | `GET` | `/sessions/:name` | — | session info + current page url/title |
 | `POST` | `/sessions/:name/purge` | — | clear cookies + storage, keep session id |
-| `DELETE` | `/sessions/:name` | — | close context, remove profile |
+| `DELETE` | `/sessions/:name` | — | `{ ok }` — close context, remove profile |
 | `POST` | `/sessions/:name/navigate` | `{ url, waitUntil?, timeoutMs? }` | `{ url, title, status }` |
 | `GET` | `/sessions/:name/screenshot` | `?fullPage=true&selector=...` | `image/png` |
 | `POST` | `/sessions/:name/script` | `{ code }` (≤200kB) | `{ result }` — code runs in page context |
@@ -85,6 +87,12 @@ All routes require `Authorization: Bearer $BROWSER_USE_API_KEY` except `/health`
 | `POST` | `/sessions/:name/cookies` | `{ cookies: [...] }` | `{ ok }` |
 | `GET` | `/sessions/:name/console` | `?limit=100` | `{ messages: [...] }` (ring buffer) |
 | `GET` | `/sessions/:name/cdp-url` | — | `{ cdpUrl }` — for non-persistent sessions only |
+
+`POST /sessions/:name/script` passes `code` directly to Playwright's `page.evaluate`. Send a JavaScript expression, or wrap statements in an IIFE:
+
+```json
+{ "code": "(() => { const x = 1; return x; })()" }
+```
 
 ### Errors
 
@@ -124,6 +132,26 @@ server-side.
   proxy?: { server, username?, password?, bypass? };
 }
 ```
+
+### Cookie shape
+
+`POST /sessions/:name/cookies` accepts up to 500 Playwright-style cookies:
+
+```ts
+{
+  name: string;
+  value: string;
+  url?: string;       // or domain + path
+  domain?: string;
+  path?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+}
+```
+
+Each cookie must include either `url` or both `domain` and `path`.
 
 ### Persistent vs non-persistent
 
@@ -167,7 +195,7 @@ Why patchright over alternatives:
         └── 2026-05-25T...-trace.zip # if traces:true at create
 ```
 
-`POST /sessions/:name/purge` clears cookies, permissions, `localStorage`, `sessionStorage`, `IndexedDB`, ServiceWorker registrations, CacheStorage, and the console buffer. It does **not** delete the on-disk profile (so the session id stays valid). To wipe the profile too, `DELETE /sessions/:name` and recreate.
+`POST /sessions/:name/purge` clears cookies, permissions, `localStorage`, `sessionStorage`, `IndexedDB`, ServiceWorker registrations, CacheStorage, and the console buffer. It does **not** delete the on-disk profile (so the session id stays valid), and it does not clear browser-level HTTP cache or HSTS state. To wipe the profile too, `DELETE /sessions/:name` and recreate.
 
 Auto-screenshots are capped at `MAX_NAV_SCREENSHOTS` per session (default 200, oldest deleted first). Set to `0` to disable.
 
