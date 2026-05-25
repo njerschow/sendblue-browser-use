@@ -27,6 +27,7 @@ export type ConsoleMessage = {
 export type Session = {
   name: string;
   persistent: boolean;
+  headless: boolean;
   context: BrowserContext;
   page: Page;
   createdAt: string;
@@ -41,6 +42,7 @@ export type Session = {
 export type SessionSummary = {
   name: string;
   persistent: boolean;
+  headless: boolean;
   createdAt: string;
   lastUsedAt: string;
   pageUrl: string | null;

@@ -25,6 +25,7 @@ cd <path-to-sendblue-browser-use>
 BROWSER_USE_API_KEY=$(openssl rand -hex 32) bun src/index.ts &
 
 # Docker
+# Docker defaults to headless; set DEFAULT_HEADLESS=false before startup for headed local debugging.
 docker compose up -d
 ```
 
@@ -44,6 +45,9 @@ Authorization: Bearer $BROWSER_USE_API_KEY
 TOKEN="Authorization: Bearer $BROWSER_USE_API_KEY"
 
 # 1. Create a session. persistent=false exposes a CDP url; persistent=true backs to an on-disk profile.
+#    For visible login/OTP, start the daemon with DEFAULT_HEADLESS=false before
+#    creating non-persistent sessions, or use {"persistent":true,"headless":false}.
+#    Non-persistent sessions ignore per-session headless and return the effective mode.
 curl -s -X POST http://127.0.0.1:8787/sessions \
   -H "$TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"qa","persistent":false,"viewport":{"width":1440,"height":900}}'

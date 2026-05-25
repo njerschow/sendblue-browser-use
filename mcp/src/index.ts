@@ -108,7 +108,7 @@ const server = new McpServer({
 
 server.tool(
   "health",
-  "Check if the sendblue-browser-use daemon is reachable. Returns service metadata + active session count. No auth used (the /health endpoint is public).",
+  "Check if the sendblue-browser-use daemon is reachable. Returns service metadata, active session count, and defaultHeadless. No auth used (the /health endpoint is public).",
   {},
   asyncTool({}, async () => {
     const res = await fetch(`${BASE_URL}/health`).catch((err: Error) => {
@@ -127,11 +127,11 @@ server.tool(
 
 server.tool(
   "create_session",
-  "Create a new browser session. Use persistent=false (default) to enable CDP attach; persistent=true backs to an on-disk profile that survives restarts but does NOT expose a CDP url.",
+  "Create a new browser session. Use persistent=false (default) to enable CDP attach; persistent=true backs to an on-disk profile that survives restarts but does NOT expose a CDP url. The headless option only applies to persistent sessions; non-persistent sessions ignore it and inherit daemon DEFAULT_HEADLESS.",
   {
     name: z.string().min(1).describe("Session id. Must match /^[a-z0-9][a-z0-9_-]{0,62}$/i."),
     persistent: z.boolean().optional().default(false),
-    headless: z.union([z.boolean(), z.literal("new")]).optional(),
+    headless: z.union([z.boolean(), z.literal("new")]).optional().describe("Persistent sessions only. Non-persistent sessions ignore this value and inherit daemon DEFAULT_HEADLESS."),
     viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).optional(),
     userAgent: z.string().optional(),
     locale: z.string().optional(),

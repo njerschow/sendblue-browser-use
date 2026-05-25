@@ -67,9 +67,9 @@ Then point your client at it:
 
 | Tool | What it does |
 |---|---|
-| `health` | Check if the daemon is reachable. |
+| `health` | Check if the daemon is reachable, including its default headless mode. |
 | `list_sessions` | List active browser sessions. |
-| `create_session` | Spawn a session. `persistent=false` for CDP attach. |
+| `create_session` | Spawn a session. `persistent=false` for CDP attach and ignores per-session `headless`; use `persistent=true, headless=false` for a visible persisted browser. |
 | `get_session` | Inspect current page URL/title + console buffer count. |
 | `navigate` | Navigate to a URL (http(s) only). |
 | `screenshot` | Capture PNG, full-page or per-selector. Returned as MCP image block. |

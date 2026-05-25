@@ -123,7 +123,7 @@ All routes require `Authorization: Bearer $BROWSER_USE_API_KEY` except `/health`
 
 | Method | Path | Body / Query | Returns |
 |---|---|---|---|
-| `GET` | `/health` | — | `{ ok, service, version, sessions }` |
+| `GET` | `/health` | — | `{ ok, service, version, sessions, defaultHeadless: boolean }` |
 | `GET` | `/sessions` | — | `{ sessions: [...] }` |
 | `POST` | `/sessions` | `{ name, persistent?, headless?, viewport?, userAgent?, locale?, timezone?, traces?, proxy? }` | `{ session }` |
 | `GET` | `/sessions/:name` | — | session info + current page url/title |
@@ -172,7 +172,7 @@ server-side with proxy credentials redacted.
 {
   name: string;            // required, [a-z0-9_-]
   persistent?: boolean;    // default true — profile data survives restarts
-  headless?: boolean | "new"; // persistent sessions only; non-persistent uses DEFAULT_HEADLESS
+  headless?: boolean | "new"; // persistent sessions only; non-persistent uses daemon DEFAULT_HEADLESS
   viewport?: { width, height };
   userAgent?: string;
   locale?: string;         // default "en-US"
@@ -181,6 +181,12 @@ server-side with proxy credentials redacted.
   proxy?: { server, username?, password?, bypass? };
 }
 ```
+
+For visible login/OTP work, either start the daemon with `DEFAULT_HEADLESS=false`
+before creating non-persistent CDP sessions, or create a persistent session with
+`headless:false`. Non-persistent sessions share one Chromium process, so any
+per-session `headless` value is ignored; check the returned `session.headless`
+or `/health`'s `defaultHeadless` boolean for the effective mode.
 
 ### Cookie shape
 
@@ -256,7 +262,7 @@ Auto-screenshots are capped at `MAX_NAV_SCREENSHOTS` per session (default 200, o
 - CDP is bound to `CDP_BIND` (default `127.0.0.1`; the Docker image default is also loopback-only). `docker-compose.yml` opts into `CDP_BIND=0.0.0.0` inside the container but publishes only to `127.0.0.1` on the host. Anyone who can reach this port gets full in-browser RCE — keep it on loopback.
 - `POST /sessions/:name/script` runs arbitrary JS in the page context. The bearer token is the only gate. Don't share the token.
 - `POST /sessions/:name/navigate` only accepts `http(s)` URLs — `file://`, `chrome://`, etc. are rejected.
-- Healthcheck (`GET /health`) is public so Docker/k8s probes work without a token; it returns service metadata only.
+- Healthcheck (`GET /health`) is public so Docker/k8s probes work without a token; it returns service metadata plus the daemon's default headless mode.
 
 ## Architecture
 

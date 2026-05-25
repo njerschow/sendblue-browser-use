@@ -52,6 +52,10 @@ function runsDir(name: string) {
   return join(env.dataDir, "runs", name);
 }
 
+function effectiveHeadless(value: boolean | "new"): boolean {
+  return value === "new" ? true : value;
+}
+
 export function listSessions(): SessionSummary[] {
   return [...sessions.values()].map(summarise);
 }
@@ -68,9 +72,14 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
   if (sessions.has(options.name) || creatingSessions.has(options.name)) {
     throw Object.assign(new Error(`session "${options.name}" already exists`), { status: 409 });
   }
-  creatingSessions.add(options.name);
 
   const persistent = options.persistent !== false;
+  const defaultHeadless = effectiveHeadless(env.defaultHeadless);
+  const requestedHeadless = options.headless === undefined ? undefined : effectiveHeadless(options.headless);
+  const sessionHeadless = persistent ? (requestedHeadless ?? defaultHeadless) : defaultHeadless;
+
+  creatingSessions.add(options.name);
+
   let context: BrowserContext | undefined;
   try {
     mkdirSync(profileDir(options.name), { recursive: true });
@@ -81,11 +90,10 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
       // We sacrifice the shared CDP attach url for persistent sessions but gain
       // durable cookies/storage. Use { persistent: false } if you want the shared
       // CDP url + ephemeral state.
-      const headlessOpt = options.headless ?? env.defaultHeadless;
       // patchright handles AutomationControlled internally — passing the flag here would defeat it.
       // Only forward userAgent/viewport when caller explicitly sets them.
       context = await chromium.launchPersistentContext(profileDir(options.name), {
-        headless: headlessOpt === "new" ? true : headlessOpt,
+        headless: sessionHeadless,
         viewport: options.viewport ?? null,
         ...(options.userAgent ? { userAgent: options.userAgent } : {}),
         locale: options.locale ?? "en-US",
@@ -115,6 +123,7 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
     const session: Session = {
       name: options.name,
       persistent,
+      headless: sessionHeadless,
       context,
       page,
       createdAt: new Date().toISOString(),
@@ -237,6 +246,7 @@ function summarise(session: Session): SessionSummary {
   return {
     name: session.name,
     persistent: session.persistent,
+    headless: session.headless,
     createdAt: session.createdAt,
     lastUsedAt: session.lastUsedAt,
     pageUrl: page?.url() ?? null,

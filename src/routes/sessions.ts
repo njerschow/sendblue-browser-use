@@ -123,9 +123,9 @@ sessionsRoutes.post("/", async (c) => {
     return c.json({ session: summary }, 201);
   } catch (err) {
     const e = err as Error & { status?: number; code?: string };
-    const status = (e.status ?? 500) as 409 | 500;
-    if (status === 409) return c.json(errBody(e.code ?? "already_exists", e.message), status);
-    return c.json(errBody(e.code ?? "internal_error", sanitizeBrowserError(err, "internal_error")), status);
+    if (e.status === 400) return c.json(errBody(e.code ?? "invalid_body", e.message), 400);
+    if (e.status === 409) return c.json(errBody(e.code ?? "already_exists", e.message), 409);
+    return c.json(errBody(e.code ?? "internal_error", sanitizeBrowserError(err, "internal_error")), 500);
   }
 });
 
@@ -139,6 +139,7 @@ sessionsRoutes.get("/:name", async (c) => {
     return c.json({
       name: session.name,
       persistent: session.persistent,
+      headless: session.headless,
       createdAt: session.createdAt,
       lastUsedAt: session.lastUsedAt,
       pageUrl: page?.url() ?? null,
