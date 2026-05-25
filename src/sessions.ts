@@ -1,17 +1,30 @@
 import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import type { BrowserContext, Page } from "patchright";
+import type { BrowserContext } from "patchright";
 import { chromium } from "patchright";
 import { env } from "./env";
 import { log } from "./lib/logger";
 import type { ConsoleMessage, Session, SessionOptions, SessionSummary } from "./types";
-import { getCdpUrl, getSharedBrowser } from "./browser";
+import { getCdpUrl, getSharedBrowser, onBrowserDisconnected } from "./browser";
 
 const sessions = new Map<string, Session>();
 
 let evictTimer: ReturnType<typeof setInterval> | null = null;
+let disconnectUnsub: (() => void) | null = null;
+
+// When the shared browser dies, every non-persistent session points at a dead
+// context. Drop them from the map so callers get 404 instead of crashes.
+function dropNonPersistentSessions() {
+  for (const [name, session] of sessions) {
+    if (!session.persistent) {
+      log.warn("dropping session after shared browser disconnect", { name });
+      sessions.delete(name);
+    }
+  }
+}
 
 export function startIdleEviction() {
+  if (!disconnectUnsub) disconnectUnsub = onBrowserDisconnected(dropNonPersistentSessions);
   if (evictTimer || env.IDLE_SESSION_MINUTES === 0) return;
   evictTimer = setInterval(() => {
     const cutoff = Date.now() - env.IDLE_SESSION_MINUTES * 60_000;
@@ -27,6 +40,7 @@ export function startIdleEviction() {
 export function stopIdleEviction() {
   if (evictTimer) clearInterval(evictTimer);
   evictTimer = null;
+  if (disconnectUnsub) { disconnectUnsub(); disconnectUnsub = null; }
 }
 
 function profileDir(name: string) {
@@ -142,13 +156,32 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
 export async function purgeSession(name: string): Promise<SessionSummary> {
   const session = sessions.get(name);
   if (!session) throw Object.assign(new Error(`session "${name}" not found`), { status: 404 });
-  // Clear cookies, storage, and navigate to about:blank. Keeps the session id.
-  await session.context.clearCookies().catch(() => {});
+  // Clear cookies + permissions at the context level, then localStorage,
+  // sessionStorage, IndexedDB, ServiceWorkers, and CacheStorage in every page.
+  await session.context.clearCookies().catch((err) => log.warn("purge_clear_cookies_failed", { name, err: String(err) }));
+  await session.context.clearPermissions().catch((err) => log.warn("purge_clear_permissions_failed", { name, err: String(err) }));
   for (const page of session.context.pages()) {
-    await page.evaluate(() => {
-      try { localStorage.clear(); sessionStorage.clear(); } catch {}
-    }).catch(() => {});
-    await page.goto("about:blank").catch(() => {});
+    await page.evaluate(async () => {
+      try { localStorage.clear(); } catch {}
+      try { sessionStorage.clear(); } catch {}
+      try {
+        const dbs = await indexedDB.databases?.() ?? [];
+        await Promise.all(dbs.map((db) => new Promise<void>((resolve) => {
+          if (!db.name) return resolve();
+          const req = indexedDB.deleteDatabase(db.name);
+          req.onsuccess = req.onerror = req.onblocked = () => resolve();
+        })));
+      } catch {}
+      try {
+        const regs = await navigator.serviceWorker?.getRegistrations?.() ?? [];
+        await Promise.all(regs.map((r) => r.unregister()));
+      } catch {}
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      } catch {}
+    }).catch((err) => log.warn("purge_page_eval_failed", { name, err: String(err) }));
+    await page.goto("about:blank").catch((err) => log.warn("purge_goto_blank_failed", { name, err: String(err) }));
   }
   session.consoleBuffer.length = 0;
   touch(session);

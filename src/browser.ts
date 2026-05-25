@@ -5,6 +5,18 @@ import { log } from "./lib/logger";
 let sharedBrowser: Browser | null = null;
 let sharedCdpUrl: string | null = null;
 let launching: Promise<Browser> | null = null;
+const disconnectListeners = new Set<() => void>();
+
+/**
+ * Register a callback fired when the shared browser disconnects.
+ * Sessions module uses this to invalidate non-persistent sessions whose
+ * contexts are now dead, so the next request returns a clean 404 instead
+ * of a cryptic "Target closed" error.
+ */
+export function onBrowserDisconnected(fn: () => void): () => void {
+  disconnectListeners.add(fn);
+  return () => disconnectListeners.delete(fn);
+}
 
 /**
  * Lazily launch a single Chromium instance shared across all named sessions.
@@ -47,6 +59,9 @@ export async function getSharedBrowser(): Promise<Browser> {
       log.warn("shared chromium disconnected");
       sharedBrowser = null;
       sharedCdpUrl = null;
+      for (const fn of disconnectListeners) {
+        try { fn(); } catch (err) { log.error("disconnect_listener_failed", { err: String(err) }); }
+      }
     });
     launching = null;
     return browser;
