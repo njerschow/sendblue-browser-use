@@ -266,7 +266,7 @@ sessionsRoutes.get("/:name/cdp-url", (c) => {
     return c.json(
       errBody(
         "cdp_unavailable_for_persistent_session",
-        "Persistent sessions back to a private profile and do not expose the shared CDP URL. Create the session with { persistent: false } to attach via CDP.",
+        "Persistent sessions are backed by a private profile and do not expose the shared CDP URL. Create the session with { persistent: false } to attach via CDP.",
       ),
       409,
     );
