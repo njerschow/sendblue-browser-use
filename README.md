@@ -98,7 +98,7 @@ All routes require `Authorization: Bearer $BROWSER_USE_API_KEY` except `/health`
 
 All non-2xx responses share the same envelope. Failures from Playwright are
 truncated to one line before being returned; the full message is logged
-server-side.
+server-side with proxy credentials redacted.
 
 ```json
 { "error": { "code": "navigate_failed", "message": "net::ERR_NAME_NOT_RESOLVED" } }

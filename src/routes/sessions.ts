@@ -31,12 +31,19 @@ async function readJson(c: Context): Promise<
   }
 }
 
+function redactSecrets(text: string): string {
+  return text
+    .replace(/(password=)[^&\s,)]+/gi, "$1[redacted]")
+    .replace(/([a-z][a-z0-9+.-]*:\/\/[^:\s/@]+:)[^@\s/]+(@)/gi, "$1[redacted]$2");
+}
+
 // Strip Playwright/Chromium error noise (multi-line "Call log:" blocks, internal
-// target IDs) before echoing to clients. We still log the full message server-side.
+// target IDs) before echoing to clients. Logs keep the full redacted message.
 function sanitizeBrowserError(err: unknown, code: string): string {
   const raw = err instanceof Error ? err.message : String(err);
-  log.warn(`${code}_detail`, { err: raw });
-  return raw.split("\n")[0]?.slice(0, 300) ?? "browser operation failed";
+  const redacted = redactSecrets(raw);
+  log.warn(`${code}_detail`, { err: redacted });
+  return redacted.split("\n")[0]?.slice(0, 300) ?? "browser operation failed";
 }
 
 const notFound = (c: Context, name: string) =>
