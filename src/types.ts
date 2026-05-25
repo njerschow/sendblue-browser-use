@@ -32,6 +32,7 @@ export type Session = {
   createdAt: string;
   lastUsedAt: string;
   consoleBuffer: ConsoleMessage[];
+  navScreenshotPaths: string[];
   runsDir: string;
   options: SessionOptions;
   cdpUrl?: string;

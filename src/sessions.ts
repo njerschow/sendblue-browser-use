@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { BrowserContext } from "patchright";
 import { chromium } from "patchright";
@@ -117,6 +117,7 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
     createdAt: new Date().toISOString(),
     lastUsedAt: new Date().toISOString(),
     consoleBuffer: [],
+    navScreenshotPaths: [],
     runsDir: runsDir(options.name),
     options,
     cdpUrl: persistent ? undefined : (getCdpUrl() ?? undefined),
@@ -140,13 +141,24 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
     });
   });
 
-  // Auto-screenshot on every navigation (best-effort, non-blocking).
-  page.on("framenavigated", (frame) => {
-    if (frame !== page.mainFrame()) return;
-    const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    const path = join(session.runsDir, `${ts}-nav.png`);
-    page.screenshot({ path, fullPage: false }).catch(() => {});
-  });
+  // Auto-screenshot on every navigation, capped at MAX_NAV_SCREENSHOTS per session
+  // so a long-lived nav-heavy run can't fill the host disk. 0 disables.
+  if (env.MAX_NAV_SCREENSHOTS > 0) {
+    page.on("framenavigated", (frame) => {
+      if (frame !== page.mainFrame()) return;
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      const filePath = join(session.runsDir, `${ts}-nav.png`);
+      page.screenshot({ path: filePath, fullPage: false })
+        .then(() => {
+          session.navScreenshotPaths.push(filePath);
+          while (session.navScreenshotPaths.length > env.MAX_NAV_SCREENSHOTS) {
+            const oldest = session.navScreenshotPaths.shift();
+            if (oldest) try { unlinkSync(oldest); } catch {}
+          }
+        })
+        .catch(() => {});
+    });
+  }
 
   sessions.set(options.name, session);
   log.info("session created", { name: options.name, persistent });

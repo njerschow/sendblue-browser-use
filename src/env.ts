@@ -12,6 +12,7 @@ const Schema = z.object({
   DEFAULT_HEADLESS: z.enum(["true", "false", "new"]).default("false"),
   IDLE_SESSION_MINUTES: z.coerce.number().int().min(0).default(120),
   MAX_CONSOLE_BUFFER: z.coerce.number().int().min(10).default(500),
+  MAX_NAV_SCREENSHOTS: z.coerce.number().int().min(0).default(200),
   CHROMIUM_ARGS: z.string().default(""),
 });
 
