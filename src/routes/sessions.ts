@@ -8,6 +8,7 @@ import {
   purgeSession,
   touch,
 } from "../sessions";
+import { env } from "../env";
 import { validSessionName } from "../lib/id";
 import { log } from "../lib/logger";
 
@@ -241,7 +242,9 @@ sessionsRoutes.get("/:name/console", (c) => {
   const name = c.req.param("name");
   const session = getSession(name);
   if (!session) return notFound(c, name);
-  const limit = Math.min(Number(c.req.query("limit") ?? 100), session.consoleBuffer.length);
+  const parsedLimit = Number.parseInt(c.req.query("limit") ?? "100", 10);
+  const requestedLimit = Number.isFinite(parsedLimit) ? parsedLimit : 100;
+  const limit = Math.min(Math.max(requestedLimit, 0), env.MAX_CONSOLE_BUFFER, session.consoleBuffer.length);
   return c.json({ messages: session.consoleBuffer.slice(-limit) });
 });
 
