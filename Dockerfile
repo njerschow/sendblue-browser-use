@@ -1,7 +1,7 @@
 # sendblue-browser-use — debug browser with stealth-patched Chromium.
 # Multi-stage so the final image stays slim.
 
-FROM oven/bun:1.1 AS deps
+FROM oven/bun:1.3.5 AS deps
 WORKDIR /app
 COPY package.json bun.lock* ./
 RUN bun install --frozen-lockfile || bun install
