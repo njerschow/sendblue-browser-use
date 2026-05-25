@@ -11,7 +11,7 @@ It runs as its own process — not tied to any one Claude / Cursor / Codex sessi
 | **Not coupled to a single agent** | Long-running HTTP daemon. Any tool with a bearer token can drive it. |
 | **Doesn't look automated** | Chromium patched via `patchright`: `navigator.webdriver` is hidden, CDP detection vectors are patched, real Chromium binary (no Playwright fingerprints). Passes typical Cloudflare Turnstile and similar low-friction checks; not for hostile scraping at scale. |
 | **Reusable sessions** | Named persistent profiles. Log in once, every subsequent debug run reuses the cookies. |
-| **One-click reset** | `POST /sessions/:name/purge` clears cookies + storage but keeps the session id, so your client code keeps working. |
+| **One-click reset** | `POST /sessions/:name/purge` clears cookies + active-page storage but keeps the session id, so your client code keeps working. |
 | **Multi-agent friendly** | Each session is an isolated `BrowserContext` (or its own profile). Run 5+ debug sessions in parallel without state bleed. |
 | **CDP attach** | `GET /sessions/:name/cdp-url` returns the shared browser CDP URL for non-persistent sessions, so Playwright / Puppeteer / any CDP client can `connect()` to the debug browser. |
 | **Auto evidence** | Every navigation auto-screenshots into `~/.sendblue-browser-use/runs/<session>/`. Optional Playwright traces. |
@@ -70,6 +70,53 @@ docker compose up -d
 
 Same API, exposed on `127.0.0.1:8787`. CDP is on `127.0.0.1:9222`. Data persists in `./data/`.
 
+## Install into your agent
+
+The repo ships three packaging layers so any agent can drive the daemon with one line of config.
+
+### MCP (Claude Desktop, Codex, Cursor, Antigravity, Cline, Windsurf)
+
+The cross-agent path. Wraps the HTTP API as MCP tools (`health`, `create_session`, `navigate`, `screenshot`, `script`, `get_cdp_url`, `purge_session`, etc).
+
+```json
+{
+  "mcpServers": {
+    "sendblue-browser": {
+      "command": "npx",
+      "args": ["-y", "sendblue-browser-mcp"],
+      "env": {
+        "BROWSER_USE_URL": "http://127.0.0.1:8787",
+        "BROWSER_USE_API_KEY": "<same token you start the daemon with>"
+      }
+    }
+  }
+}
+```
+
+Drop into `~/.cursor/mcp.json`, `~/Library/Application Support/Claude/claude_desktop_config.json`, `~/.gemini/config/mcp_config.json`, etc. For Codex: `codex mcp add sendblue-browser npx -- -y sendblue-browser-mcp`. Wrapper source: [`mcp/`](mcp/).
+
+### Claude Code plugin
+
+```
+/plugin install SendblueBase/sendblue-browser-use
+```
+
+Pulls `.claude-plugin/plugin.json` + `skills/sendblue-browser/SKILL.md` from this repo.
+
+### Codex / Antigravity / Cline skill
+
+The same [`skills/sendblue-browser/SKILL.md`](skills/sendblue-browser/SKILL.md) works as a skill across Codex, Google Antigravity, and Cline. Copy the folder into:
+
+| Agent | Path |
+|---|---|
+| Codex | `~/.codex/skills/sendblue-browser/` |
+| Antigravity | `~/.gemini/skills/sendblue-browser/` |
+| Cline | enable Skills in Settings, then drop in its skills directory |
+
+### AGENTS.md repos
+
+If your repo already follows the [agents.md](https://agents.md) convention, the [`AGENTS.md`](AGENTS.md) in this repo doubles as a copy-pasteable section for any consumer repo that wants to call this daemon.
+
 ## API
 
 All routes require `Authorization: Bearer $BROWSER_USE_API_KEY` except `/health`.
@@ -88,7 +135,7 @@ All routes require `Authorization: Bearer $BROWSER_USE_API_KEY` except `/health`
 | `GET` | `/sessions/:name/cookies` | `?url=...` | `{ cookies }` |
 | `POST` | `/sessions/:name/cookies` | `{ cookies: [...] }` | `{ ok }` |
 | `GET` | `/sessions/:name/console` | `?limit=100` | `{ messages: [...] }` (ring buffer) |
-| `GET` | `/sessions/:name/cdp-url` | — | `{ cdpUrl }` — for non-persistent sessions only |
+| `GET` | `/sessions/:name/cdp-url` | — | `{ cdpUrl, targetId }` — for non-persistent sessions only |
 
 `POST /sessions/:name/script` passes `code` directly to Playwright's `page.evaluate`. Send a JavaScript expression, or wrap statements in an IIFE. Scripts time out after 30s by default; pass `timeoutMs` up to `120000`, or `0` to disable the request timeout.
 
@@ -115,7 +162,7 @@ server-side with proxy credentials redacted.
 | 404 | `not_found` | session does not exist |
 | 409 | `already_exists` | a session with that name is already running |
 | 409 | `cdp_unavailable_for_persistent_session` | persistent sessions don't expose the shared CDP url |
-| 422 | `script_failed` | `/script` request was valid but the in-page eval threw |
+| 422 | `script_failed` | `/script` request was valid but the in-page eval threw or timed out |
 | 500 | `internal_error` | unexpected — check server logs |
 | 502 | `navigate_failed` `screenshot_failed` `cookie_read_failed` `cookie_write_failed` `session_unreachable` | Chromium-side failure |
 
@@ -124,8 +171,8 @@ server-side with proxy credentials redacted.
 ```ts
 {
   name: string;            // required, [a-z0-9_-]
-  persistent?: boolean;    // default true — survives restarts via on-disk profile
-  headless?: boolean | "new"; // default false (env DEFAULT_HEADLESS)
+  persistent?: boolean;    // default true — profile data survives restarts
+  headless?: boolean | "new"; // persistent sessions only; non-persistent uses DEFAULT_HEADLESS
   viewport?: { width, height };
   userAgent?: string;
   locale?: string;         // default "en-US"
@@ -144,7 +191,7 @@ server-side with proxy credentials redacted.
   cookies: Array<{
     name: string;
     value: string;
-    url?: string;       // or domain + path
+    url?: string;       // absolute URL, or domain + path
     domain?: string;
     path?: string;
     expires?: number;
@@ -159,8 +206,8 @@ Each cookie must include either `url` or both `domain` and `path`.
 
 ### Persistent vs non-persistent
 
-- **`persistent: true` (default)** — cookies, localStorage, IndexedDB persist under `~/.sendblue-browser-use/profiles/<name>/`. Survives server restart. **CDP attach is not available** for these sessions because each gets its own private browser instance.
-- **`persistent: false`** — shares the central Chromium process via a fresh `BrowserContext`. State is in-memory only. **CDP attach IS available** via `/sessions/:name/cdp-url`, which returns the shared browser-level CDP endpoint. CDP clients can see the shared debug browser, so keep the CDP port local and trusted.
+- **`persistent: true` (default)** — cookies, localStorage, IndexedDB persist under `~/.sendblue-browser-use/profiles/<name>/`. After a daemon restart, recreate the same named persistent session to reuse that profile. **CDP attach is not available** for these sessions because each gets its own private browser instance.
+- **`persistent: false`** — shares the central Chromium process via a fresh `BrowserContext`. State is in-memory only. **CDP attach IS available** via `/sessions/:name/cdp-url`, which returns the shared browser-level CDP endpoint plus a `targetId` for the session page. CDP clients can see the shared debug browser, so keep the CDP port local and trusted and select the returned target before driving.
 
 Pick persistent for "log in once, debug for a week" workflows. Pick non-persistent when you need to attach Playwright / Puppeteer directly.
 
