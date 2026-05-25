@@ -75,12 +75,12 @@ HTTP mode binds `127.0.0.1` and refuses requests unless `SENDBLUE_BROWSER_MCP_TO
 
 | Tool | What it does |
 |---|---|
-| `health` | Check if the daemon is reachable. |
+| `health` | Check if the daemon is reachable, including `navScreenshotPolicy`. |
 | `list_sessions` | List active browser sessions. |
-| `create_session` | Spawn a session. `persistent=true` follows the daemon default; set `persistent=false` for CDP attach. |
-| `get_session` | Inspect current page URL/title + console buffer count. |
-| `navigate` | Navigate to a URL (http(s) only). |
-| `screenshot` | Capture PNG, full-page or per-selector. Returned as MCP image block. |
+| `create_session` | Spawn a session. `persistent=true` follows the daemon default; set `persistent=false` for CDP attach. Responses include `autoNavScreenshots`. |
+| `get_session` | Inspect current page URL/title, console buffer count, and `autoNavScreenshots`. |
+| `navigate` | Navigate to a URL (http(s) only). Background evidence is only written when `autoNavScreenshots=true`. |
+| `screenshot` | Capture PNG, full-page or per-selector. Use explicitly after headed navigation when evidence is needed. |
 | `script` | Eval a JS expression in page context (wrap statements in an IIFE). |
 | `get_cookies` / `set_cookies` | Playwright-shape cookie I/O. |
 | `get_console` | Read recent console messages from the page. |

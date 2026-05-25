@@ -33,6 +33,7 @@ export type Session = {
   lastUsedAt: string;
   consoleBuffer: ConsoleMessage[];
   navScreenshotPaths: string[];
+  autoNavScreenshots: boolean;
   runsDir: string;
   options: SessionOptions;
   cdpUrl?: string;
@@ -47,6 +48,7 @@ export type SessionSummary = {
   pageUrl: string | null;
   pageTitle: string | null;
   consoleMessages: number;
+  autoNavScreenshots: boolean;
   cdpUrl?: string;
   cdpTargetId?: string;
 };

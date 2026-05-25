@@ -57,6 +57,8 @@ curl -s -X POST http://127.0.0.1:8787/sessions/qa/navigate \
   -d '{"url":"https://example.com/","waitUntil":"networkidle","timeoutMs":15000}'
 
 # 3. Screenshot. ?fullPage=true and ?selector=CSS supported. Returns image/png.
+#    With NAV_SCREENSHOT_POLICY=headless (default), headed sessions skip automatic
+#    nav screenshots to avoid visible capture flicker. Call this explicitly for headed evidence.
 curl -s "http://127.0.0.1:8787/sessions/qa/screenshot?fullPage=true" \
   -H "$TOKEN" -o /tmp/shot.png
 

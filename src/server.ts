@@ -16,6 +16,7 @@ export function createApp() {
       service: "sendblue-browser-use",
       version: "0.2.0",
       sessions: listSessions().length,
+      navScreenshotPolicy: env.navScreenshotPolicy,
     });
   });
 

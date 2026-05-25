@@ -1,6 +1,6 @@
 # sendblue-browser-use
 
-A standalone debug browser for agents. Stealth-patched Chromium behind a tiny HTTP API, with persistent named sessions, an easy purge endpoint, auto screenshots, and CDP attach so any client (Playwright, Puppeteer, undetected-chromedriver, custom scripts) can drive it.
+A standalone debug browser for agents. Stealth-patched Chromium behind a tiny HTTP API, with persistent named sessions, an easy purge endpoint, configurable auto screenshots, and CDP attach so any client (Playwright, Puppeteer, undetected-chromedriver, custom scripts) can drive it.
 
 It runs as its own process — not tied to any one Claude / Cursor / Codex session — so multiple agents can share it concurrently, debug each other's flows, and reuse a logged-in session without paying the auth tax every run.
 
@@ -14,7 +14,7 @@ It runs as its own process — not tied to any one Claude / Cursor / Codex sessi
 | **One-click reset** | `POST /sessions/:name/purge` clears cookies + active-page storage but keeps the session id, so your client code keeps working. |
 | **Multi-agent friendly** | Each session is an isolated `BrowserContext` (or its own profile). Run 5+ debug sessions in parallel without state bleed. |
 | **CDP attach** | `GET /sessions/:name/cdp-url` returns the shared browser CDP URL for non-persistent sessions, so Playwright / Puppeteer / any CDP client can `connect()` to the debug browser. |
-| **Auto evidence** | Every navigation auto-screenshots into `~/.sendblue-browser-use/runs/<session>/`. Optional Playwright traces. |
+| **Auto evidence** | Navigation screenshots follow `NAV_SCREENSHOT_POLICY` (default: headless only). Optional Playwright traces. |
 | **HTTP-controlled** | Plain `curl` works. No SDK required. |
 | **Self-contained deploy** | One `docker compose up` on any Mac mini / EC2 / Codespace. No host Chromium needed. |
 
@@ -123,7 +123,7 @@ All routes require `Authorization: Bearer $BROWSER_USE_API_KEY` except `/health`
 
 | Method | Path | Body / Query | Returns |
 |---|---|---|---|
-| `GET` | `/health` | — | `{ ok, service, version, sessions }` |
+| `GET` | `/health` | — | `{ ok, service, version, sessions, navScreenshotPolicy }` |
 | `GET` | `/sessions` | — | `{ sessions: [...] }` |
 | `POST` | `/sessions` | `{ name, persistent?, headless?, viewport?, userAgent?, locale?, timezone?, traces?, proxy? }` | `{ session }` |
 | `GET` | `/sessions/:name` | — | session info + current page url/title |
@@ -242,13 +242,18 @@ Why patchright over alternatives:
 │   └── <session>/          # persistent profile dir
 └── runs/
     └── <session>/
-        ├── 2026-05-25T...-nav.png   # auto-screenshot per nav
+        ├── 2026-05-25T...-nav.png   # automatic nav screenshot when policy enables it
         └── 2026-05-25T...-trace.zip # if traces:true at create
 ```
 
 `POST /sessions/:name/purge` clears cookies and permissions context-wide, then clears `localStorage`, `sessionStorage`, `IndexedDB`, ServiceWorker registrations, CacheStorage, and the console buffer for currently open pages/origins. It does **not** enumerate every historical origin in a persistent profile, does not delete the on-disk profile (so the session id stays valid), and does not clear browser-level HTTP cache or HSTS state. To wipe the profile too, `DELETE /sessions/:name` and recreate.
 
-Auto-screenshots are capped at `MAX_NAV_SCREENSHOTS` per session (default 200, oldest deleted first). Set to `0` to disable.
+Automatic navigation screenshots follow `NAV_SCREENSHOT_POLICY`:
+- `headless` (default): only effective-headless sessions write `*-nav.png`, avoiding visible capture flicker in headed browsers.
+- `always`: preserve legacy behavior and capture every navigation, including headed sessions.
+- `off`: disable automatic navigation screenshots.
+
+Auto-screenshots are capped at `MAX_NAV_SCREENSHOTS` per session (default 200, oldest deleted first). Set `MAX_NAV_SCREENSHOTS=0` to disable automatic screenshots entirely. Call `/screenshot` explicitly when you need evidence from a headed browser.
 
 ## Security
 

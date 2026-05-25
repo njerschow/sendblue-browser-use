@@ -52,6 +52,16 @@ function runsDir(name: string) {
   return join(env.dataDir, "runs", name);
 }
 
+function effectiveHeadless(value: boolean | "new"): boolean {
+  return value === "new" ? true : value;
+}
+
+export function shouldAutoScreenshotNavigation(sessionHeadless: boolean): boolean {
+  if (env.MAX_NAV_SCREENSHOTS === 0 || env.navScreenshotPolicy === "off") return false;
+  if (env.navScreenshotPolicy === "always") return true;
+  return sessionHeadless;
+}
+
 async function resolveCdpTargetId(context: BrowserContext, page: Page, name: string): Promise<string | undefined> {
   let cdp: Awaited<ReturnType<BrowserContext["newCDPSession"]>> | undefined;
   try {
@@ -85,6 +95,10 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
   creatingSessions.add(options.name);
 
   const persistent = options.persistent !== false;
+  const defaultHeadless = effectiveHeadless(env.defaultHeadless);
+  const requestedHeadless = options.headless === undefined ? undefined : effectiveHeadless(options.headless);
+  const sessionHeadless = persistent ? (requestedHeadless ?? defaultHeadless) : defaultHeadless;
+  const autoNavScreenshots = shouldAutoScreenshotNavigation(sessionHeadless);
   let context: BrowserContext | undefined;
   try {
     mkdirSync(profileDir(options.name), { recursive: true });
@@ -95,11 +109,10 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
       // We sacrifice the shared CDP attach url for persistent sessions but gain
       // durable cookies/storage. Use { persistent: false } if you want the shared
       // CDP url + ephemeral state.
-      const headlessOpt = options.headless ?? env.defaultHeadless;
       // patchright handles AutomationControlled internally — passing the flag here would defeat it.
       // Only forward userAgent/viewport when caller explicitly sets them.
       context = await chromium.launchPersistentContext(profileDir(options.name), {
-        headless: headlessOpt === "new" ? true : headlessOpt,
+        headless: sessionHeadless,
         viewport: options.viewport ?? null,
         ...(options.userAgent ? { userAgent: options.userAgent } : {}),
         locale: options.locale ?? "en-US",
@@ -137,6 +150,7 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
       lastUsedAt: new Date().toISOString(),
       consoleBuffer: [],
       navScreenshotPaths: [],
+      autoNavScreenshots,
       runsDir: runsDir(options.name),
       options,
       cdpUrl: persistent ? undefined : (getCdpUrl() ?? undefined),
@@ -161,9 +175,10 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
       });
     });
 
-    // Auto-screenshot on every navigation, capped at MAX_NAV_SCREENSHOTS per session
-    // so a long-lived nav-heavy run can't fill the host disk. 0 disables.
-    if (env.MAX_NAV_SCREENSHOTS > 0) {
+    // Auto-screenshot navigation according to NAV_SCREENSHOT_POLICY, capped at
+    // MAX_NAV_SCREENSHOTS per session so a long-lived nav-heavy run can't fill
+    // the host disk. Headed captures can visibly repaint during navigation.
+    if (autoNavScreenshots) {
       page.on("framenavigated", (frame) => {
         if (frame !== page.mainFrame()) return;
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
@@ -259,6 +274,7 @@ function summarise(session: Session): SessionSummary {
     pageUrl: page?.url() ?? null,
     pageTitle: null, // computed lazily where needed; sync read here keeps list fast
     consoleMessages: session.consoleBuffer.length,
+    autoNavScreenshots: session.autoNavScreenshots,
     cdpUrl: session.cdpUrl,
     cdpTargetId: session.cdpTargetId,
   };
