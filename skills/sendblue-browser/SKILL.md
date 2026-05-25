@@ -1,15 +1,15 @@
 ---
 name: sendblue-browser
-description: Drive a long-running stealth-patched Chromium daemon over a tiny REST API to navigate pages, take screenshots, evaluate JavaScript, manage sessions, and attach Playwright/Puppeteer over CDP. Use whenever the user needs browser automation, signup QA, headed-browser scraping, or bypass of low-friction bot checks (Cloudflare Turnstile, etc.).
+description: Drive a long-running stealth-patched Chromium daemon over a tiny REST API to navigate pages, take screenshots, evaluate JavaScript, manage sessions, and attach Playwright/Puppeteer over CDP. Use whenever the user needs browser automation, signup QA, headed-browser scraping, or QA against typical low-friction bot checks such as Cloudflare Turnstile.
 metadata:
   short-description: Stealth Chromium daemon (sendblue-browser-use) — REST API + CDP attach.
 ---
 
 # sendblue-browser
 
-Long-running stealth Chromium (`patchright`) exposed via a tiny REST API. One process, many named sessions, durable cookies, one-click purge, and a CDP url for Playwright/Puppeteer to attach. Defeats Cloudflare Turnstile and similar low-friction bot checks; not for hostile scraping at scale.
+Long-running stealth Chromium (`patchright`) exposed via a tiny REST API. One process, many named sessions, durable cookies, one-click purge, and a CDP url for Playwright/Puppeteer to attach. Passes typical Cloudflare Turnstile and similar low-friction checks; not for hostile scraping at scale.
 
-Repo: https://github.com/SendblueBase/sendblue-browser-use
+Repo: https://github.com/sendblue-api/sendblue-browser-use
 
 ## Is the daemon running?
 
@@ -22,7 +22,8 @@ If you get a JSON `{ ok: true, ... }` response, skip to "Drive a session". Other
 ```bash
 # Local dev (Bun)
 cd <path-to-sendblue-browser-use>
-BROWSER_USE_API_KEY=$(openssl rand -hex 32) bun src/index.ts &
+export BROWSER_USE_API_KEY="${BROWSER_USE_API_KEY:-$(openssl rand -hex 32)}"
+bun src/index.ts &
 
 # Docker
 docker compose up -d
@@ -37,6 +38,8 @@ Every endpoint except `/health` requires a bearer token (`BROWSER_USE_API_KEY` e
 ```
 Authorization: Bearer $BROWSER_USE_API_KEY
 ```
+
+Treat the token as local browser/network control: a token holder can run page scripts and navigate Chromium to private or localhost services reachable from the daemon host.
 
 ## Drive a session
 
@@ -72,7 +75,7 @@ curl -s "http://127.0.0.1:8787/sessions/qa/cookies?url=https://example.com" -H "
 # 6. Console ring buffer (last N messages from page)
 curl -s "http://127.0.0.1:8787/sessions/qa/console?limit=50" -H "$TOKEN"
 
-# 7. Clear cookies + storage but keep the session id
+# 7. Clear cookies + active-page storage but keep the session id
 curl -s -X POST http://127.0.0.1:8787/sessions/qa/purge -H "$TOKEN"
 
 # 8. Close + delete profile
@@ -84,13 +87,30 @@ curl -s -X DELETE http://127.0.0.1:8787/sessions/qa -H "$TOKEN"
 For multi-step interactions (forms, OTP, file upload, real mouse), drive via Playwright. Non-persistent sessions expose a CDP websocket URL; persistent ones do not (they have their own private browser instance).
 
 ```js
-const { cdpUrl } = await fetch("http://127.0.0.1:8787/sessions/qa/cdp-url", {
+const { cdpUrl, targetId } = await fetch("http://127.0.0.1:8787/sessions/qa/cdp-url", {
   headers: { Authorization: `Bearer ${process.env.BROWSER_USE_API_KEY}` }
 }).then(r => r.json());
 
 const { chromium } = require("playwright");
 const browser = await chromium.connectOverCDP(cdpUrl);
-const page = browser.contexts()[0].pages()[0];
+
+async function targetIdFor(page) {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const info = await cdp.send("Target.getTargetInfo");
+    return info.targetInfo?.targetId;
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
+}
+
+let page;
+for (const context of browser.contexts()) {
+  for (const candidate of context.pages()) {
+    if (await targetIdFor(candidate).catch(() => undefined) === targetId) page = candidate;
+  }
+}
+if (!page) throw new Error(`CDP target ${targetId} not found`);
 
 await page.locator("input[name=emailAddress]").pressSequentially("user@example.com", { delay: 50 });
 await page.locator("input[name=password]").pressSequentially("hunter2!", { delay: 50 });
@@ -119,7 +139,7 @@ Every non-2xx response: `{ "error": { "code": "...", "message": "..." } }`. Comm
 | 404 | `not_found` | no such session |
 | 409 | `already_exists` | session name collision |
 | 409 | `cdp_unavailable_for_persistent_session` | persistent sessions have no shared CDP url |
-| 422 | `script_failed` | eval threw inside the page |
+| 422 | `script_failed` | eval threw inside the page or timed out |
 | 500 | `internal_error` | unexpected — check server logs |
 | 502 | `navigate_failed` `screenshot_failed` `cookie_read_failed` `cookie_write_failed` `session_unreachable` | Chromium-side failure |
 

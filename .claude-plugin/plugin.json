@@ -1,17 +1,13 @@
 {
-  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "sendblue-browser-use",
   "version": "0.2.0",
-  "description": "Stealth-patched Chromium daemon with REST API + CDP attach. Bypasses Cloudflare Turnstile and similar bot checks.",
+  "description": "Stealth-patched Chromium daemon with REST API + CDP attach. Passes typical Cloudflare Turnstile and similar low-friction checks; not for hostile scraping at scale.",
   "author": {
     "name": "Sendblue",
-    "url": "https://github.com/SendblueBase"
+    "url": "https://github.com/sendblue-api"
   },
-  "homepage": "https://github.com/SendblueBase/sendblue-browser-use",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/SendblueBase/sendblue-browser-use"
-  },
+  "homepage": "https://github.com/sendblue-api/sendblue-browser-use",
+  "repository": "https://github.com/sendblue-api/sendblue-browser-use",
   "license": "MIT",
   "keywords": ["browser-automation", "chromium", "playwright", "patchright", "cdp", "stealth", "mcp"]
 }

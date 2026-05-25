@@ -23,7 +23,7 @@ It runs as its own process — not tied to any one Claude / Cursor / Codex sessi
 Prereqs: Bun `>=1.3` and Node.js `>=20` on your `PATH`.
 
 ```sh
-git clone https://github.com/njerschow/sendblue-browser-use.git
+git clone https://github.com/sendblue-api/sendblue-browser-use.git
 cd sendblue-browser-use
 bun install
 bun --bun x patchright install chromium
@@ -68,7 +68,7 @@ echo "BROWSER_USE_API_KEY=$(openssl rand -hex 32)" > .env
 docker compose up -d
 ```
 
-Same API, exposed on `127.0.0.1:8787`. CDP is on `127.0.0.1:9222`. Data persists in `./data/`.
+Same API, exposed on `127.0.0.1:8787`. Data persists in `./data/`. CDP stays loopback-only inside the container by default; to attach CDP from the host, uncomment `CDP_BIND` and the `127.0.0.1:9222:9222` port mapping in `docker-compose.yml` on a trusted machine only.
 
 ## Install into your agent
 
@@ -98,7 +98,7 @@ Drop into `~/.cursor/mcp.json`, `~/Library/Application Support/Claude/claude_des
 ### Claude Code plugin
 
 ```
-/plugin install SendblueBase/sendblue-browser-use
+/plugin install sendblue-api/sendblue-browser-use
 ```
 
 Pulls `.claude-plugin/plugin.json` + `skills/sendblue-browser/SKILL.md` from this repo.
@@ -213,7 +213,7 @@ Pick persistent for "log in once, debug for a week" workflows. Pick non-persiste
 
 ## Examples
 
-- [`examples/attach-from-playwright.ts`](examples/attach-from-playwright.ts) — connect Playwright over CDP and drive a page
+- [`examples/attach-from-playwright.ts`](examples/attach-from-playwright.ts) — connect Playwright over CDP and drive a page (run with Node/tsx as shown in the file header)
 - [`examples/attach-from-puppeteer.ts`](examples/attach-from-puppeteer.ts) — same with Puppeteer
 - [`examples/multi-agent-debug.ts`](examples/multi-agent-debug.ts) — two agents driving two surfaces in parallel
 - [`examples/run-script.sh`](examples/run-script.sh) — curl-only walkthrough
@@ -253,8 +253,9 @@ Auto-screenshots are capped at `MAX_NAV_SCREENSHOTS` per session (default 200, o
 ## Security
 
 - The HTTP API binds to `127.0.0.1` by default. Setting `BIND=0.0.0.0` exposes you to your LAN — put a reverse proxy with auth in front before doing this. The Docker image sets `BIND=0.0.0.0` so host port-publishing works, but `docker-compose.yml` publishes only to `127.0.0.1`. If you `docker run -p 8787:8787` directly, you are choosing to expose the HTTP API.
-- CDP is bound to `CDP_BIND` (default `127.0.0.1`; the Docker image default is also loopback-only). `docker-compose.yml` opts into `CDP_BIND=0.0.0.0` inside the container but publishes only to `127.0.0.1` on the host. Anyone who can reach this port gets full in-browser RCE — keep it on loopback.
+- CDP is bound to `CDP_BIND` (default `127.0.0.1`; the Docker image default is also loopback-only). The default `docker-compose.yml` does not publish CDP; if you opt into host CDP attach, publish it to `127.0.0.1` only. Anyone who can reach this port gets full in-browser RCE — keep it on loopback.
 - `POST /sessions/:name/script` runs arbitrary JS in the page context. The bearer token is the only gate. Don't share the token.
+- Treat the bearer token as local browser/network control. A token holder can navigate Chromium to any `http(s)` URL reachable from the daemon host, including localhost and private-network services.
 - `POST /sessions/:name/navigate` only accepts `http(s)` URLs — `file://`, `chrome://`, etc. are rejected.
 - Healthcheck (`GET /health`) is public so Docker/k8s probes work without a token; it returns service metadata only.
 
@@ -262,7 +263,7 @@ Auto-screenshots are capped at `MAX_NAV_SCREENSHOTS` per session (default 200, o
 
 ```
 HTTP :8787  ──►  Hono router  ──►  session manager  ──►  patchright Chromium
-                                    │                    └─►  CDP :9222 (localhost)
+                                    │                    └─►  CDP :9222 (loopback; Docker opt-in)
                                     └─►  on-disk profiles + runs
 ```
 

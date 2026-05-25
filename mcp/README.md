@@ -1,16 +1,16 @@
 # sendblue-browser-mcp
 
-MCP server that wraps the [`sendblue-browser-use`](https://github.com/SendblueBase/sendblue-browser-use) daemon. Exposes the full HTTP API as MCP tools so any MCP-speaking client (Claude Desktop, OpenAI Codex, Cursor, Google Antigravity, Cline, Windsurf, Claude Code) can drive a stealth-patched Chromium with one line of config.
+MCP server that wraps the [`sendblue-browser-use`](https://github.com/sendblue-api/sendblue-browser-use) daemon. Exposes the full HTTP API as MCP tools so any MCP-speaking client (Claude Desktop, OpenAI Codex, Cursor, Google Antigravity, Cline, Windsurf, Claude Code) can drive a stealth-patched Chromium with one line of config.
 
 ## Install
 
 ```bash
 # Most clients: nothing to install — they run via npx automatically.
 # Verify it works once:
-npx -y sendblue-browser-mcp
+npx -y sendblue-browser-mcp --version
 ```
 
-You must already have the `sendblue-browser-use` daemon running on `127.0.0.1:8787` (or wherever `BROWSER_USE_URL` points). The MCP server is a thin proxy.
+Tool calls require the `sendblue-browser-use` daemon to be running on `127.0.0.1:8787` (or wherever `BROWSER_USE_URL` points). The MCP server is a thin proxy.
 
 ## Configure your client
 
@@ -48,7 +48,10 @@ Drop that block into:
 If your client prefers remote MCP servers, run the wrapper as an HTTP service:
 
 ```bash
-sendblue-browser-mcp --port 8788
+export SENDBLUE_BROWSER_MCP_TOKEN="$(openssl rand -hex 32)"
+BROWSER_USE_API_KEY="<daemon token>" \
+  SENDBLUE_BROWSER_MCP_TOKEN="$SENDBLUE_BROWSER_MCP_TOKEN" \
+  sendblue-browser-mcp --port 8788
 ```
 
 Then point your client at it:
@@ -57,11 +60,16 @@ Then point your client at it:
 {
   "mcpServers": {
     "sendblue-browser": {
-      "url": "http://127.0.0.1:8788/mcp"
+      "url": "http://127.0.0.1:8788/mcp",
+      "headers": {
+        "Authorization": "Bearer <SENDBLUE_BROWSER_MCP_TOKEN>"
+      }
     }
   }
 }
 ```
+
+HTTP mode binds `127.0.0.1` and refuses requests unless `SENDBLUE_BROWSER_MCP_TOKEN` is set and supplied as a bearer token. Prefer stdio mode unless your MCP client specifically needs HTTP.
 
 ## Tools exposed
 
@@ -69,15 +77,15 @@ Then point your client at it:
 |---|---|
 | `health` | Check if the daemon is reachable. |
 | `list_sessions` | List active browser sessions. |
-| `create_session` | Spawn a session. `persistent=false` for CDP attach. |
+| `create_session` | Spawn a session. `persistent=true` follows the daemon default; set `persistent=false` for CDP attach. |
 | `get_session` | Inspect current page URL/title + console buffer count. |
 | `navigate` | Navigate to a URL (http(s) only). |
 | `screenshot` | Capture PNG, full-page or per-selector. Returned as MCP image block. |
 | `script` | Eval a JS expression in page context (wrap statements in an IIFE). |
 | `get_cookies` / `set_cookies` | Playwright-shape cookie I/O. |
 | `get_console` | Read recent console messages from the page. |
-| `get_cdp_url` | Get the CDP websocket URL for direct Playwright/Puppeteer attach. |
-| `purge_session` | Clear cookies + storage + caches, keep session id. |
+| `get_cdp_url` | Get the CDP websocket URL and targetId for direct Playwright/Puppeteer attach. |
+| `purge_session` | Clear cookies/permissions and active-page storage/caches, keep session id. |
 | `close_session` | Close + delete on-disk profile. |
 
 ## Env
@@ -86,6 +94,7 @@ Then point your client at it:
 |---|---|---|---|
 | `BROWSER_USE_API_KEY` | Yes | — | Same token used to start the daemon. |
 | `BROWSER_USE_URL` | No | `http://127.0.0.1:8787` | Daemon base URL. |
+| `SENDBLUE_BROWSER_MCP_TOKEN` | HTTP mode only | — | Bearer token required by `--port` Streamable HTTP mode. |
 
 ## License
 

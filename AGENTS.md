@@ -4,7 +4,7 @@
 
 ## What this repo is
 
-A standalone HTTP daemon that runs a stealth-patched Chromium (`patchright`) for browser automation. Long-lived process, bearer-token-gated REST API, optional CDP attach for any client (Playwright, Puppeteer, custom scripts). Defeats Cloudflare Turnstile and similar low-friction bot checks.
+A standalone HTTP daemon that runs a stealth-patched Chromium (`patchright`) for browser automation. Long-lived process, bearer-token-gated REST API, optional CDP attach for any client (Playwright, Puppeteer, custom scripts). Passes typical Cloudflare Turnstile and similar low-friction checks; not for hostile scraping at scale.
 
 Source layout:
 - `src/` — Bun + Hono HTTP server
@@ -77,6 +77,7 @@ bun test                 # unit tests when added
 - HTTP API binds `127.0.0.1` by default. `BIND=0.0.0.0` exposes to LAN — put auth in front first.
 - CDP binds `CDP_BIND` (default `127.0.0.1`). Anyone who can reach this port has in-browser RCE. Keep on loopback.
 - `POST /sessions/:name/script` runs arbitrary JS in the page context — the bearer token is the only gate. Don't share it.
+- Treat the bearer token as local browser/network control. A token holder can navigate Chromium to private or localhost services reachable from the daemon host.
 - `/navigate` only accepts `http(s)` URLs; `file://` / `chrome://` are rejected.
 - `/health` is public so probes work without a token; it returns service metadata only.
 - See `SECURITY.md` for disclosure process.
