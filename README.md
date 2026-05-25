@@ -83,7 +83,7 @@ The cross-agent path. Wraps the HTTP API as MCP tools (`health`, `create_session
   "mcpServers": {
     "sendblue-browser": {
       "command": "npx",
-      "args": ["-y", "sendblue-browser-mcp"],
+      "args": ["-y", "sendblue-browser-mcp@0.2.3"],
       "env": {
         "BROWSER_USE_URL": "http://127.0.0.1:8787",
         "BROWSER_USE_API_KEY": "<same token you start the daemon with>"
@@ -93,7 +93,16 @@ The cross-agent path. Wraps the HTTP API as MCP tools (`health`, `create_session
 }
 ```
 
-Drop into `~/.cursor/mcp.json`, `~/Library/Application Support/Claude/claude_desktop_config.json`, `~/.gemini/config/mcp_config.json`, etc. For Codex: `codex mcp add sendblue-browser npx -- -y sendblue-browser-mcp`. Wrapper source: [`mcp/`](mcp/).
+Drop into `~/.cursor/mcp.json`, `~/Library/Application Support/Claude/claude_desktop_config.json`, `~/.gemini/config/mcp_config.json`, etc. For Codex:
+
+```sh
+codex mcp add sendblue-browser \
+  --env BROWSER_USE_URL=http://127.0.0.1:8787 \
+  --env BROWSER_USE_API_KEY=<daemon-token> \
+  -- npx -y sendblue-browser-mcp@0.2.3
+```
+
+Wrapper source: [`mcp/`](mcp/).
 
 ### Claude Code plugin
 

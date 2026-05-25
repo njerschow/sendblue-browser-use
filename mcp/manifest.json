@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "sendblue-browser",
   "display_name": "Sendblue Browser",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Drive a stealth-patched Chromium daemon: navigate, screenshot, eval JS, attach over CDP.",
   "long_description": "MCP server wrapping the sendblue-browser-use daemon. Exposes the full HTTP API as MCP tools so any MCP-speaking client can drive a real headed Chromium that passes typical Cloudflare Turnstile and similar low-friction bot checks. The bundle is a thin proxy — you must run the sendblue-browser-use daemon separately (bun src/index.ts, docker compose up, or fly/etc).",
   "author": {

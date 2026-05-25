@@ -7,7 +7,7 @@ MCP server that wraps the [`sendblue-browser-use`](https://github.com/sendblue-a
 ```bash
 # Most clients: nothing to install — they run via npx automatically.
 # Verify it works once:
-npx -y sendblue-browser-mcp --version
+npx -y sendblue-browser-mcp@0.2.3 --version
 ```
 
 Tool calls require the `sendblue-browser-use` daemon to be running on `127.0.0.1:8787` (or wherever `BROWSER_USE_URL` points). The MCP server is a thin proxy.
@@ -21,7 +21,7 @@ All MCP clients have converged on this shape:
   "mcpServers": {
     "sendblue-browser": {
       "command": "npx",
-      "args": ["-y", "sendblue-browser-mcp"],
+      "args": ["-y", "sendblue-browser-mcp@0.2.3"],
       "env": {
         "BROWSER_USE_URL": "http://127.0.0.1:8787",
         "BROWSER_USE_API_KEY": "<the same token you started the daemon with>"
@@ -39,7 +39,7 @@ Drop that block into:
 | Claude Code | `~/.claude.json` or repo-level `.claude.json` |
 | Cursor | `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project) |
 | Google Antigravity | `~/.gemini/config/mcp_config.json` |
-| OpenAI Codex | `codex mcp add sendblue-browser npx -- -y sendblue-browser-mcp` (writes `~/.codex/config.toml`) |
+| OpenAI Codex | `codex mcp add sendblue-browser --env BROWSER_USE_URL=http://127.0.0.1:8787 --env BROWSER_USE_API_KEY=<daemon-token> -- npx -y sendblue-browser-mcp@0.2.3` (writes `~/.codex/config.toml`) |
 | Cline | Settings → MCP Servers → Add |
 | Windsurf | Settings → Cascade → MCP → Add |
 

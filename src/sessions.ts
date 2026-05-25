@@ -9,6 +9,32 @@ import { getCdpUrl, getSharedBrowser, onBrowserDisconnected } from "./browser";
 
 const sessions = new Map<string, Session>();
 const creatingSessions = new Set<string>();
+const closingSessions = new Map<string, { promise: Promise<void>; deleteProfileRequested: boolean }>();
+const purgingSessions = new Map<string, Promise<SessionSummary>>();
+const consoleCaptureContexts = new WeakSet<BrowserContext>();
+const CONSOLE_BINDING = "__sendblueBrowserConsole";
+const CONSOLE_CAPTURE_INJECT_TIMEOUT_MS = 1_000;
+const CONSOLE_CAPTURE_SCRIPT = `
+(() => {
+  const binding = "${CONSOLE_BINDING}";
+  if (globalThis.__sendblueConsolePatched) return;
+  Object.defineProperty(globalThis, "__sendblueConsolePatched", { value: true });
+  const serialize = (args) => args.map((value) => {
+    if (typeof value === "string") return value;
+    try { return JSON.stringify(value); } catch {}
+    try { return String(value); } catch {}
+    return "[unserializable]";
+  }).join(" ");
+  for (const type of ["log", "info", "warn", "error", "debug"]) {
+    const original = console[type]?.bind(console);
+    if (!original) continue;
+    console[type] = (...args) => {
+      try { globalThis[binding]?.({ type, text: serialize(args) }); } catch {}
+      return original(...args);
+    };
+  }
+})();
+`;
 
 let evictTimer: ReturnType<typeof setInterval> | null = null;
 let disconnectUnsub: (() => void) | null = null;
@@ -76,6 +102,56 @@ async function resolveCdpTargetId(context: BrowserContext, page: Page, name: str
   }
 }
 
+async function requireCdpTargetId(context: BrowserContext, page: Page, name: string): Promise<string> {
+  const targetId = await resolveCdpTargetId(context, page, name);
+  if (!targetId) throw new Error(`could not resolve CDP target id for session "${name}"`);
+  return targetId;
+}
+
+async function installConsoleCapture(session: Session) {
+  if (!consoleCaptureContexts.has(session.context)) {
+    await session.context.exposeBinding(CONSOLE_BINDING, ({ page }, payload: { type?: unknown; text?: unknown }) => {
+      pushConsole(session, {
+        t: new Date().toISOString(),
+        type: typeof payload?.type === "string" ? payload.type : "log",
+        text: typeof payload?.text === "string" ? payload.text : String(payload?.text ?? ""),
+        url: page?.url() ?? session.page.url(),
+      });
+    });
+    await session.context.addInitScript(CONSOLE_CAPTURE_SCRIPT);
+    consoleCaptureContexts.add(session.context);
+  }
+
+  await Promise.allSettled(session.context.pages().map(async (page) => {
+    await page.addInitScript(CONSOLE_CAPTURE_SCRIPT);
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`console capture injection timed out after ${CONSOLE_CAPTURE_INJECT_TIMEOUT_MS}ms`)),
+        CONSOLE_CAPTURE_INJECT_TIMEOUT_MS,
+      );
+    });
+    try {
+      await Promise.race([page.evaluate(CONSOLE_CAPTURE_SCRIPT), timeout]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!/Target page, context or browser has been closed/i.test(message)) {
+        log.warn("console_capture_page_inject_failed", { name: session.name, err: message });
+      }
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }));
+}
+
+export async function ensureConsoleCapture(session: Session) {
+  await installConsoleCapture(session).catch((err) => log.warn("console_capture_install_failed", {
+    name: session.name,
+    err: String(err),
+  }));
+}
+
 export function listSessions(): SessionSummary[] {
   return [...sessions.values()].map(summarise);
 }
@@ -89,7 +165,7 @@ export function touch(session: Session) {
 }
 
 export async function createSession(options: SessionOptions): Promise<SessionSummary> {
-  if (sessions.has(options.name) || creatingSessions.has(options.name)) {
+  if (sessions.has(options.name) || creatingSessions.has(options.name) || closingSessions.has(options.name)) {
     throw Object.assign(new Error(`session "${options.name}" already exists`), { status: 409 });
   }
   creatingSessions.add(options.name);
@@ -139,7 +215,7 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
       await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
     }
 
-    const cdpTargetId = persistent ? undefined : await resolveCdpTargetId(context, page, options.name);
+    const cdpTargetId = persistent ? undefined : await requireCdpTargetId(context, page, options.name);
 
     const session: Session = {
       name: options.name,
@@ -158,6 +234,8 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
       cdpTargetId,
     };
 
+    await installConsoleCapture(session);
+
     // Capture console messages into a ring buffer.
     page.on("console", (msg) => {
       pushConsole(session, {
@@ -175,6 +253,9 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
         url: page.url(),
       });
     });
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) void ensureConsoleCapture(session);
+    });
 
     // Auto-screenshot navigation according to NAV_SCREENSHOT_POLICY, capped at
     // MAX_NAV_SCREENSHOTS per session so a long-lived nav-heavy run can't fill
@@ -184,7 +265,7 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
         if (frame !== page.mainFrame()) return;
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
         const filePath = join(session.runsDir, `${ts}-nav.png`);
-        page.screenshot({ path: filePath, fullPage: false })
+        page.screenshot({ path: filePath, fullPage: false, timeout: 5_000 })
           .then(() => {
             session.navScreenshotPaths.push(filePath);
             while (session.navScreenshotPaths.length > env.MAX_NAV_SCREENSHOTS) {
@@ -208,54 +289,102 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
 }
 
 export async function purgeSession(name: string): Promise<SessionSummary> {
+  const existingPurge = purgingSessions.get(name);
+  if (existingPurge) return existingPurge;
+  if (closingSessions.has(name)) throw Object.assign(new Error(`session "${name}" not found`), { status: 404 });
+
   const session = sessions.get(name);
   if (!session) throw Object.assign(new Error(`session "${name}" not found`), { status: 404 });
-  // Clear cookies + permissions at the context level, then localStorage,
-  // sessionStorage, IndexedDB, ServiceWorkers, and CacheStorage in every page.
-  await session.context.clearCookies().catch((err) => log.warn("purge_clear_cookies_failed", { name, err: String(err) }));
-  await session.context.clearPermissions().catch((err) => log.warn("purge_clear_permissions_failed", { name, err: String(err) }));
-  for (const page of session.context.pages()) {
-    await page.evaluate(async () => {
-      try { localStorage.clear(); } catch {}
-      try { sessionStorage.clear(); } catch {}
-      try {
-        const dbs = await indexedDB.databases?.() ?? [];
-        await Promise.all(dbs.map((db) => new Promise<void>((resolve) => {
-          if (!db.name) return resolve();
-          const req = indexedDB.deleteDatabase(db.name);
-          req.onsuccess = req.onerror = req.onblocked = () => resolve();
-        })));
-      } catch {}
-      try {
-        const regs = await navigator.serviceWorker?.getRegistrations?.() ?? [];
-        await Promise.all(regs.map((r) => r.unregister()));
-      } catch {}
-      try {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k)));
-      } catch {}
-    }).catch((err) => log.warn("purge_page_eval_failed", { name, err: String(err) }));
-    await page.goto("about:blank").catch((err) => log.warn("purge_goto_blank_failed", { name, err: String(err) }));
+
+  const purgePromise = (async () => {
+    const failures: string[] = [];
+    const recordFailure = (step: string, err: unknown) => {
+      failures.push(step);
+      log.warn(step, { name, err: String(err) });
+    };
+
+    // Clear cookies + permissions at the context level, then localStorage,
+    // sessionStorage, IndexedDB, ServiceWorkers, and CacheStorage in every page.
+    await session.context.clearCookies().catch((err) => recordFailure("purge_clear_cookies_failed", err));
+    await session.context.clearPermissions().catch((err) => recordFailure("purge_clear_permissions_failed", err));
+    for (const page of session.context.pages()) {
+      await page.evaluate(async () => {
+        try { localStorage.clear(); } catch {}
+        try { sessionStorage.clear(); } catch {}
+        try {
+          const dbs = await indexedDB.databases?.() ?? [];
+          await Promise.all(dbs.map((db) => new Promise<void>((resolve) => {
+            if (!db.name) return resolve();
+            const req = indexedDB.deleteDatabase(db.name);
+            req.onsuccess = req.onerror = req.onblocked = () => resolve();
+          })));
+        } catch {}
+        try {
+          const regs = await navigator.serviceWorker?.getRegistrations?.() ?? [];
+          await Promise.all(regs.map((r) => r.unregister()));
+        } catch {}
+        try {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((k) => caches.delete(k)));
+        } catch {}
+      }).catch((err) => recordFailure("purge_page_eval_failed", err));
+      await page.goto("about:blank").catch((err) => recordFailure("purge_goto_blank_failed", err));
+    }
+
+    if (failures.length > 0 || closingSessions.has(name) || !sessions.has(name)) {
+      throw Object.assign(new Error("session purge failed; check server logs"), { status: 500 });
+    }
+
+    session.consoleBuffer.length = 0;
+    touch(session);
+    log.info("session purged", { name });
+    return summarise(session);
+  })();
+
+  purgingSessions.set(name, purgePromise);
+  try {
+    return await purgePromise;
+  } finally {
+    if (purgingSessions.get(name) === purgePromise) purgingSessions.delete(name);
   }
-  session.consoleBuffer.length = 0;
-  touch(session);
-  log.info("session purged", { name });
-  return summarise(session);
 }
 
 export async function closeSession(name: string, opts: { keepProfile?: boolean } = {}): Promise<void> {
+  await purgingSessions.get(name)?.catch((err) => {
+    log.warn("close_wait_for_purge_failed", { name, err: String(err) });
+  });
+
+  const existingClose = closingSessions.get(name);
+  if (existingClose) {
+    if (!opts.keepProfile) existingClose.deleteProfileRequested = true;
+    await existingClose.promise;
+    return;
+  }
+
   const session = sessions.get(name);
   if (!session) throw Object.assign(new Error(`session "${name}" not found`), { status: 404 });
-  if (session.options.traces) {
-    const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    await session.context.tracing.stop({ path: join(session.runsDir, `${ts}-trace.zip`) }).catch(() => {});
+
+  const closeState = { promise: Promise.resolve(), deleteProfileRequested: !opts.keepProfile };
+  const closePromise = (async () => {
+    if (session.options.traces) {
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      await session.context.tracing.stop({ path: join(session.runsDir, `${ts}-trace.zip`) }).catch(() => {});
+    }
+    await session.context.close().catch(() => {});
+    sessions.delete(name);
+    if (closeState.deleteProfileRequested && existsSync(profileDir(name))) {
+      rmSync(profileDir(name), { recursive: true, force: true });
+    }
+    log.info("session closed", { name, keptProfile: !closeState.deleteProfileRequested });
+  })();
+  closeState.promise = closePromise;
+  closingSessions.set(name, closeState);
+
+  try {
+    await closePromise;
+  } finally {
+    if (closingSessions.get(name) === closeState) closingSessions.delete(name);
   }
-  await session.context.close().catch(() => {});
-  sessions.delete(name);
-  if (!opts.keepProfile && existsSync(profileDir(name))) {
-    rmSync(profileDir(name), { recursive: true, force: true });
-  }
-  log.info("session closed", { name, keptProfile: !!opts.keepProfile });
 }
 
 function pushConsole(session: Session, message: ConsoleMessage) {

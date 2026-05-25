@@ -14,7 +14,7 @@ export function createApp() {
     return c.json({
       ok: true,
       service: "sendblue-browser-use",
-      version: "0.2.0",
+      version: "0.2.3",
       sessions: listSessions().length,
       defaultHeadless: env.defaultHeadless === "new" ? true : env.defaultHeadless,
       navScreenshotPolicy: env.navScreenshotPolicy,

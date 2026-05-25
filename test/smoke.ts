@@ -49,6 +49,16 @@ function navScreenshotCount(name: string): number {
   }
 }
 
+async function waitForNavScreenshot(name: string, timeoutMs = 6_000): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const count = navScreenshotCount(name);
+    if (count > 0) return count;
+    await sleep(100);
+  }
+  return navScreenshotCount(name);
+}
+
 try {
   console.log("health:", (await call("GET", "/health")).json);
   if (shouldAutoScreenshotNavigation(false) !== false) {
@@ -62,8 +72,7 @@ try {
     throw new Error(`expected headless session to report autoNavScreenshots=true: ${smokeCreate.text}`);
   }
   console.log("navigate:", (await call("POST", "/sessions/smoke/navigate", { url: "https://example.com" })).json);
-  await sleep(300);
-  if (navScreenshotCount("smoke") < 1) {
+  if (await waitForNavScreenshot("smoke") < 1) {
     throw new Error("expected headless session to write an automatic nav screenshot");
   }
   const shotRes = await app.fetch(new Request("http://test/sessions/smoke/screenshot", { headers: auth }));

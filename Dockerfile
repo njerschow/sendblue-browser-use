@@ -22,12 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json tsconfig.json ./
-COPY src ./src
 
 # Pre-install the patched Chromium binary into a path the runtime user can read.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN mkdir -p /ms-playwright && bun x patchright install chromium \
     && chown -R bun:bun /ms-playwright /app
+COPY --chown=bun:bun src ./src
 
 # The HTTP API binds to all container interfaces so Docker port publishing works.
 # CDP stays loopback-only unless docker-compose or the operator explicitly opts in.

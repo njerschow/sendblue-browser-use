@@ -22,14 +22,23 @@ If you get a JSON `{ ok: true, ... }` response, skip to "Drive a session". Other
 ```bash
 # Local dev (Bun)
 cd <path-to-sendblue-browser-use>
+touch .env
+if [ -z "${BROWSER_USE_API_KEY:-}" ] && grep -q '^BROWSER_USE_API_KEY=' .env; then
+  export BROWSER_USE_API_KEY="$(grep '^BROWSER_USE_API_KEY=' .env | tail -1 | cut -d= -f2-)"
+fi
 export BROWSER_USE_API_KEY="${BROWSER_USE_API_KEY:-$(openssl rand -hex 32)}"
+if grep -q '^BROWSER_USE_API_KEY=' .env; then
+  sed -i.bak "s/^BROWSER_USE_API_KEY=.*/BROWSER_USE_API_KEY=$BROWSER_USE_API_KEY/" .env && rm -f .env.bak
+else
+  printf '\nBROWSER_USE_API_KEY=%s\n' "$BROWSER_USE_API_KEY" >> .env
+fi
 bun src/index.ts &
 
 # Docker
 docker compose up -d
 ```
 
-Wait ~3s, then re-check `/health`.
+Wait ~3s, then re-check `/health`. For later shell commands, reload the token with `source .env`.
 
 ## Auth
 

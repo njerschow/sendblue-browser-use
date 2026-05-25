@@ -18,7 +18,7 @@ Source layout:
 
 ```bash
 bun install
-bun x patchright install chromium
+bun --bun x patchright install chromium
 cp .env.example .env
 # Set BROWSER_USE_API_KEY (any string ≥ 8 chars; generator: openssl rand -hex 32)
 bun run dev          # starts daemon on http://127.0.0.1:8787

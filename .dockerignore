@@ -4,6 +4,10 @@
 !.env.example
 node_modules
 data
+runs
+dist
+build
+.bun
 *.log
 *.tgz
 .DS_Store

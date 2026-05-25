@@ -1,8 +1,10 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
+import type { Page } from "patchright";
 import {
   closeSession,
   createSession,
+  ensureConsoleCapture,
   getSession,
   listSessions,
   purgeSession,
@@ -44,20 +46,6 @@ function sanitizeBrowserError(err: unknown, code: string): string {
   const redacted = redactSecrets(raw);
   log.warn(`${code}_detail`, { err: redacted });
   return redacted.split("\n")[0]?.slice(0, 300) ?? "browser operation failed";
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  if (timeoutMs === 0) return promise;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
-  });
-  return Promise.race([
-    promise.finally(() => {
-      if (timer) clearTimeout(timer);
-    }),
-    timeout,
-  ]);
 }
 
 const notFound = (c: Context, name: string) =>
@@ -108,6 +96,43 @@ const CookieSchema = z.object({
   secure: z.boolean().optional(),
   sameSite: z.enum(["Strict", "Lax", "None"]).optional(),
 }).refine((c) => c.url || (c.domain && c.path), "cookie requires url or (domain + path)");
+
+async function evaluateScript(page: Page, code: string, timeoutMs: number, name: string) {
+  if (timeoutMs === 0) return page.evaluate(code);
+
+  let timedOut = false;
+  const cdpPromise = page.context().newCDPSession(page).catch((err) => {
+    log.warn("script_cdp_session_failed", { name, err: String(err) });
+    return undefined;
+  });
+  const evaluation = page.evaluate(code);
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      void cdpPromise.then((cdp) => cdp?.send("Runtime.terminateExecution").catch((err) => {
+        log.warn("script_terminate_failed", { name, err: String(err) });
+      }));
+      reject(new Error(`script timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([evaluation, timeout]);
+  } catch (err) {
+    if (timedOut) throw new Error(`script timed out after ${timeoutMs}ms`);
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+    const detach = async () => {
+      const cdp = await cdpPromise;
+      await cdp?.detach().catch(() => {});
+    };
+    if (timedOut) void detach();
+    else await detach();
+  }
+}
 
 sessionsRoutes.get("/", (c) => {
   return c.json({ sessions: listSessions() });
@@ -190,6 +215,7 @@ sessionsRoutes.post("/:name/navigate", async (c) => {
       waitUntil: parsed.data.waitUntil ?? "domcontentloaded",
       timeout: parsed.data.timeoutMs ?? 30_000,
     });
+    await ensureConsoleCapture(session);
     return c.json({
       url: session.page.url(),
       title: await session.page.title().catch(() => null),
@@ -229,12 +255,14 @@ sessionsRoutes.post("/:name/script", async (c) => {
   if (!parsed.success) return c.json(errBody("invalid_body", "request body failed validation", parsed.error.format()), 400);
   touch(session);
   try {
+    await ensureConsoleCapture(session);
     // Code runs in page context. Caller is responsible for what they send;
     // this is a debug tool guarded by bearer auth, not a public endpoint.
-    const result = await withTimeout(
-      session.page.evaluate(parsed.data.code),
+    const result = await evaluateScript(
+      session.page,
+      parsed.data.code,
       parsed.data.timeoutMs ?? DEFAULT_SCRIPT_TIMEOUT_MS,
-      "script",
+      name,
     );
     return c.json({ result });
   } catch (err) {

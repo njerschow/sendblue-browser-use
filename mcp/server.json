@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.sendblue-api/sendblue-browser-mcp",
   "description": "Drive a stealth-patched Chromium daemon: navigate, screenshot, eval JS, attach over CDP.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "repository": {
     "url": "https://github.com/sendblue-api/sendblue-browser-use",
     "source": "github"
@@ -11,7 +11,7 @@
     {
       "registryType": "npm",
       "identifier": "sendblue-browser-mcp",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {

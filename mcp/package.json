@@ -1,12 +1,12 @@
 {
   "name": "sendblue-browser-mcp",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "mcpName": "io.github.sendblue-api/sendblue-browser-mcp",
   "description": "MCP server wrapping the sendblue-browser-use daemon. Exposes navigate, screenshot, script, session lifecycle, and CDP attach as MCP tools so any MCP client (Claude Desktop, Codex, Cursor, Antigravity, Cline, Windsurf) can drive a stealth-patched Chromium.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "sendblue-browser-mcp": "./dist/index.js"
+    "sendblue-browser-mcp": "dist/index.js"
   },
   "main": "./dist/index.js",
   "files": ["dist", "README.md"],
@@ -42,7 +42,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/sendblue-api/sendblue-browser-use",
+    "url": "git+https://github.com/sendblue-api/sendblue-browser-use.git",
     "directory": "mcp"
   },
   "homepage": "https://github.com/sendblue-api/sendblue-browser-use/tree/main/mcp",

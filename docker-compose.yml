@@ -13,14 +13,15 @@ services:
       # Bind 0.0.0.0 inside container so the host port-publish below is reachable.
       # The publish itself is restricted to 127.0.0.1 — never globally exposed.
       BIND: 0.0.0.0
-      CDP_BIND: 0.0.0.0
       PORT: 8787
       CDP_PORT: 9222
       DEFAULT_HEADLESS: ${DEFAULT_HEADLESS:-true}
       IDLE_SESSION_MINUTES: ${IDLE_SESSION_MINUTES:-120}
+      # CDP is unauthenticated raw browser control. Opt in on trusted machines only:
+      # CDP_BIND: 0.0.0.0
     ports:
       - "127.0.0.1:8787:8787"
-      - "127.0.0.1:9222:9222"
+      # - "127.0.0.1:9222:9222"
     volumes:
       - ./data:/data
     shm_size: 1gb

@@ -2,7 +2,10 @@
  * Attach to a non-persistent session via CDP and drive it with Playwright.
  *
  *   bun install --no-save playwright
- *   BROWSER_USE_API_KEY=... bun examples/attach-from-playwright.ts
+ *   BROWSER_USE_API_KEY=... npx tsx examples/attach-from-playwright.ts
+ *
+ * Use Node/tsx for this example; Bun's WebSocket implementation can hang on
+ * Playwright's CDP attach path.
  */
 import { chromium, type Browser, type Page } from "playwright";
 
@@ -50,15 +53,19 @@ const { cdpUrl, targetId } = await requestJson(`/sessions/${NAME}/cdp-url`, { he
 if (!targetId) throw new Error("session did not return a CDP targetId");
 
 const browser = await chromium.connectOverCDP(cdpUrl);
+let exitCode = 0;
 try {
   const page = await sessionPage(browser, targetId);
   await page.goto("https://example.com");
   console.log("title:", await page.title());
   await page.screenshot({ path: "/tmp/example.png" });
+} catch (err) {
+  exitCode = 1;
+  console.error(err);
 } finally {
   await fetch(`${BASE}/sessions/${NAME}`, { method: "DELETE", headers: auth });
   console.log("done. session:", created.session.name);
   // Playwright does not expose a Puppeteer-style disconnect() for CDP.
   // Do not call browser.close() against a shared daemon; exiting drops this client connection.
-  process.exit(0);
+  process.exit(exitCode);
 }

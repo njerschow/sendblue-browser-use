@@ -1,6 +1,6 @@
 {
   "name": "sendblue-browser-use",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "description": "Stealth-patched Chromium daemon with REST API + CDP attach. Passes typical Cloudflare Turnstile and similar low-friction checks; not for hostile scraping at scale.",
   "author": {
     "name": "Sendblue",
