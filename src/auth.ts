@@ -6,12 +6,11 @@ import { env } from "./env";
  * Send: Authorization: Bearer $BROWSER_USE_API_KEY
  */
 export const requireAuth: MiddlewareHandler = async (c, next) => {
-  if (c.req.path === "/health") return next();
   const header = c.req.header("authorization") ?? "";
   const match = /^Bearer\s+(.+)$/i.exec(header);
   const token = match?.[1]?.trim();
   if (!token || !timingSafeEqual(token, env.BROWSER_USE_API_KEY)) {
-    return c.json({ error: "unauthorized" }, 401);
+    return c.json({ error: { code: "unauthorized", message: "missing or invalid bearer token" } }, 401);
   }
   return next();
 };
