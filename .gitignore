@@ -11,3 +11,7 @@ runs/
 *.zip
 .idea/
 .vscode/
+
+# MCPB bundle artifacts (built via scripts/build-mcpb.sh)
+mcp/bundle/
+mcp/*.mcpb

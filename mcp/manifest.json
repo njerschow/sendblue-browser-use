@@ -1,0 +1,56 @@
+{
+  "manifest_version": "0.2",
+  "name": "sendblue-browser",
+  "display_name": "Sendblue Browser",
+  "version": "0.2.2",
+  "description": "Drive a stealth-patched Chromium daemon: navigate, screenshot, eval JS, attach over CDP.",
+  "long_description": "MCP server wrapping the sendblue-browser-use daemon. Exposes the full HTTP API as MCP tools so any MCP-speaking client can drive a real headed Chromium that passes typical Cloudflare Turnstile and similar low-friction bot checks. The bundle is a thin proxy — you must run the sendblue-browser-use daemon separately (bun src/index.ts, docker compose up, or fly/etc).",
+  "author": {
+    "name": "Sendblue",
+    "url": "https://github.com/sendblue-api"
+  },
+  "homepage": "https://github.com/sendblue-api/sendblue-browser-use",
+  "documentation": "https://github.com/sendblue-api/sendblue-browser-use#readme",
+  "support": "https://github.com/sendblue-api/sendblue-browser-use/issues",
+  "license": "MIT",
+  "keywords": ["browser", "browser-automation", "chromium", "patchright", "stealth", "playwright", "cdp"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sendblue-api/sendblue-browser-use"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "BROWSER_USE_URL": "${user_config.daemon_url}",
+        "BROWSER_USE_API_KEY": "${user_config.api_key}"
+      }
+    }
+  },
+  "user_config": {
+    "daemon_url": {
+      "type": "string",
+      "title": "Daemon URL",
+      "description": "Base URL of the sendblue-browser-use daemon.",
+      "default": "http://127.0.0.1:8787",
+      "required": false
+    },
+    "api_key": {
+      "type": "string",
+      "title": "Bearer token",
+      "description": "Same token you started the daemon with (BROWSER_USE_API_KEY).",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "linux", "win32"],
+    "runtimes": {
+      "node": ">=20"
+    }
+  }
+}
