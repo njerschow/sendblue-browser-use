@@ -144,6 +144,7 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
     const session: Session = {
       name: options.name,
       persistent,
+      headless: sessionHeadless,
       context,
       page,
       createdAt: new Date().toISOString(),
@@ -269,6 +270,7 @@ function summarise(session: Session): SessionSummary {
   return {
     name: session.name,
     persistent: session.persistent,
+    headless: session.headless,
     createdAt: session.createdAt,
     lastUsedAt: session.lastUsedAt,
     pageUrl: page?.url() ?? null,

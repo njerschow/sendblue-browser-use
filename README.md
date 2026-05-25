@@ -123,7 +123,7 @@ All routes require `Authorization: Bearer $BROWSER_USE_API_KEY` except `/health`
 
 | Method | Path | Body / Query | Returns |
 |---|---|---|---|
-| `GET` | `/health` | — | `{ ok, service, version, sessions, navScreenshotPolicy }` |
+| `GET` | `/health` | — | `{ ok, service, version, sessions, defaultHeadless, navScreenshotPolicy }` |
 | `GET` | `/sessions` | — | `{ sessions: [...] }` |
 | `POST` | `/sessions` | `{ name, persistent?, headless?, viewport?, userAgent?, locale?, timezone?, traces?, proxy? }` | `{ session }` |
 | `GET` | `/sessions/:name` | — | session info + current page url/title |

@@ -139,6 +139,7 @@ sessionsRoutes.get("/:name", async (c) => {
     return c.json({
       name: session.name,
       persistent: session.persistent,
+      headless: session.headless,
       createdAt: session.createdAt,
       lastUsedAt: session.lastUsedAt,
       pageUrl: page?.url() ?? null,
