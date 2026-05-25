@@ -4,9 +4,14 @@ services:
     image: sendblue-browser-use:latest
     container_name: sendblue-browser-use
     restart: unless-stopped
+    # init: true gives us a PID 1 reaper so Chromium zombies don't pile up.
+    init: true
     environment:
       BROWSER_USE_API_KEY: ${BROWSER_USE_API_KEY:?set BROWSER_USE_API_KEY in .env}
+      # Bind 0.0.0.0 inside container so the host port-publish below is reachable.
+      # The publish itself is restricted to 127.0.0.1 — never globally exposed.
       BIND: 0.0.0.0
+      CDP_BIND: 0.0.0.0
       PORT: 8787
       CDP_PORT: 9222
       DEFAULT_HEADLESS: ${DEFAULT_HEADLESS:-true}
@@ -17,3 +22,9 @@ services:
     volumes:
       - ./data:/data
     shm_size: 1gb
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
