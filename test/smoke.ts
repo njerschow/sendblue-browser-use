@@ -6,17 +6,21 @@
  *   bun --bun x patchright install chromium
  *   BROWSER_USE_API_KEY=test-key bun test/smoke.ts
  */
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 const KEY = process.env.BROWSER_USE_API_KEY ?? "test-key";
 process.env.BROWSER_USE_API_KEY = KEY;
-process.env.DEFAULT_HEADLESS ??= "true";
+process.env.DEFAULT_HEADLESS = "true";
+process.env.NAV_SCREENSHOT_POLICY = "headless";
 
-mkdirSync("/tmp/sendblue-browser-use-smoke", { recursive: true });
-process.env.DATA_DIR = "/tmp/sendblue-browser-use-smoke";
+const DATA_DIR = "/tmp/sendblue-browser-use-smoke";
+rmSync(DATA_DIR, { recursive: true, force: true });
+mkdirSync(DATA_DIR, { recursive: true });
+process.env.DATA_DIR = DATA_DIR;
 
 const { createApp } = await import("../src/server");
-const { shutdownAllSessions } = await import("../src/sessions");
+const { shouldAutoScreenshotNavigation, shutdownAllSessions } = await import("../src/sessions");
 const { shutdownBrowser } = await import("../src/browser");
 
 const app = createApp();
@@ -35,10 +39,33 @@ async function call(method: string, path: string, body?: unknown) {
   return { status: res.status, json, text };
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function navScreenshotCount(name: string): number {
+  try {
+    return readdirSync(join(DATA_DIR, "runs", name)).filter((file) => file.endsWith("-nav.png")).length;
+  } catch {
+    return 0;
+  }
+}
+
 try {
   console.log("health:", (await call("GET", "/health")).json);
-  console.log("create:", (await call("POST", "/sessions", { name: "smoke" })).json);
+  if (shouldAutoScreenshotNavigation(false) !== false) {
+    throw new Error("expected NAV_SCREENSHOT_POLICY=headless to skip headed auto nav screenshots");
+  }
+  console.log("headed policy: skip auto nav screenshots");
+
+  const smokeCreate = await call("POST", "/sessions", { name: "smoke" });
+  console.log("create:", smokeCreate.json);
+  if ((smokeCreate.json as { session?: { autoNavScreenshots?: boolean } }).session?.autoNavScreenshots !== true) {
+    throw new Error(`expected headless session to report autoNavScreenshots=true: ${smokeCreate.text}`);
+  }
   console.log("navigate:", (await call("POST", "/sessions/smoke/navigate", { url: "https://example.com" })).json);
+  await sleep(300);
+  if (navScreenshotCount("smoke") < 1) {
+    throw new Error("expected headless session to write an automatic nav screenshot");
+  }
   const shotRes = await app.fetch(new Request("http://test/sessions/smoke/screenshot", { headers: auth }));
   if (!shotRes.ok) throw new Error(`screenshot failed ${shotRes.status}`);
   console.log("screenshot bytes:", (await shotRes.arrayBuffer()).byteLength);

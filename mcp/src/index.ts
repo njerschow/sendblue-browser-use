@@ -108,7 +108,7 @@ const server = new McpServer({
 
 server.tool(
   "health",
-  "Check if the sendblue-browser-use daemon is reachable. Returns service metadata + active session count. No auth used (the /health endpoint is public).",
+  "Check if the sendblue-browser-use daemon is reachable. Returns service metadata, active session count, and navScreenshotPolicy. No auth used (the /health endpoint is public).",
   {},
   asyncTool({}, async () => {
     const res = await fetch(`${BASE_URL}/health`).catch((err: Error) => {
@@ -127,11 +127,11 @@ server.tool(
 
 server.tool(
   "create_session",
-  "Create a new browser session. Use persistent=false (default) to enable CDP attach; persistent=true backs to an on-disk profile that survives restarts but does NOT expose a CDP url.",
+  "Create a new browser session. Use persistent=false (default) to enable CDP attach; persistent=true backs to an on-disk profile that survives restarts but does NOT expose a CDP url. The response includes autoNavScreenshots so clients know whether navigate writes background evidence.",
   {
     name: z.string().min(1).describe("Session id. Must match /^[a-z0-9][a-z0-9_-]{0,62}$/i."),
     persistent: z.boolean().optional().default(false),
-    headless: z.union([z.boolean(), z.literal("new")]).optional(),
+    headless: z.union([z.boolean(), z.literal("new")]).optional().describe("Persistent sessions only. Non-persistent sessions inherit daemon DEFAULT_HEADLESS."),
     viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).optional(),
     userAgent: z.string().optional(),
     locale: z.string().optional(),
@@ -167,14 +167,14 @@ server.tool(
 
 server.tool(
   "get_session",
-  "Inspect a session — current page URL/title, console message count, CDP url.",
+  "Inspect a session — current page URL/title, console message count, CDP url, and whether automatic nav screenshots are enabled.",
   { name: z.string().min(1) },
   asyncTool({ name: z.string().min(1) }, ({ name }) => callDaemon("GET", `/sessions/${encodeURIComponent(name)}`)),
 );
 
 server.tool(
   "navigate",
-  "Navigate the session's page to a URL. http(s) only; file:// and chrome:// are rejected. waitUntil defaults to 'domcontentloaded'.",
+  "Navigate the session's page to a URL. http(s) only; file:// and chrome:// are rejected. waitUntil defaults to 'domcontentloaded'. Only sessions with autoNavScreenshots=true write background evidence; call screenshot after headed navigation when you need evidence.",
   {
     name: z.string().min(1),
     url: z.string().url().describe("Must start with http:// or https://."),
@@ -194,7 +194,7 @@ server.tool(
 
 server.tool(
   "screenshot",
-  "Take a PNG screenshot of the session's page. Returns an MCP image block. Optional CSS selector to capture a specific element; selector waits up to 5s.",
+  "Take a PNG screenshot of the session's page. Returns an MCP image block. Optional CSS selector to capture a specific element; selector waits up to 5s. Use after headed navigation because headed sessions usually skip automatic nav screenshots to avoid flicker.",
   {
     name: z.string().min(1),
     fullPage: z.boolean().optional().default(false),

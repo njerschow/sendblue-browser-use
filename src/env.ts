@@ -13,6 +13,7 @@ const Schema = z.object({
   IDLE_SESSION_MINUTES: z.coerce.number().int().min(0).default(120),
   MAX_CONSOLE_BUFFER: z.coerce.number().int().min(10).default(500),
   MAX_NAV_SCREENSHOTS: z.coerce.number().int().min(0).default(200),
+  NAV_SCREENSHOT_POLICY: z.enum(["headless", "always", "off"]).default("headless"),
   CHROMIUM_ARGS: z.string().default(""),
 });
 
@@ -23,4 +24,5 @@ export const env = {
   dataDir: parsed.DATA_DIR.startsWith("~/") ? resolve(homedir(), parsed.DATA_DIR.slice(2)) : resolve(parsed.DATA_DIR),
   chromiumArgs: parsed.CHROMIUM_ARGS ? parsed.CHROMIUM_ARGS.split(",").map((a) => a.trim()).filter(Boolean) : [],
   defaultHeadless: parsed.DEFAULT_HEADLESS === "true" ? true : parsed.DEFAULT_HEADLESS === "false" ? false : ("new" as const),
+  navScreenshotPolicy: parsed.NAV_SCREENSHOT_POLICY,
 } as const;

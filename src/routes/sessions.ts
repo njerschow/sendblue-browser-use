@@ -144,6 +144,7 @@ sessionsRoutes.get("/:name", async (c) => {
       pageUrl: page?.url() ?? null,
       pageTitle: title,
       consoleMessages: session.consoleBuffer.length,
+      autoNavScreenshots: session.autoNavScreenshots,
       cdpUrl: session.cdpUrl,
       cdpTargetId: session.cdpTargetId,
     });
