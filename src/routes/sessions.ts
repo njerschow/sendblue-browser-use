@@ -46,6 +46,20 @@ function sanitizeBrowserError(err: unknown, code: string): string {
   return redacted.split("\n")[0]?.slice(0, 300) ?? "browser operation failed";
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  if (timeoutMs === 0) return promise;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  return Promise.race([
+    promise.finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
+    timeout,
+  ]);
+}
+
 const notFound = (c: Context, name: string) =>
   c.json(errBody("not_found", `session "${name}" not found`), 404);
 
@@ -76,9 +90,11 @@ const NavigateBody = z.object({
 
 const ScriptBody = z.object({
   code: z.string().min(1).max(200_000),
+  timeoutMs: z.number().int().min(0).max(120_000).optional(),
 });
 
 const SCREENSHOT_TIMEOUT_MS = 5_000;
+const DEFAULT_SCRIPT_TIMEOUT_MS = 30_000;
 
 // Mirror Playwright's Cookie shape rather than accepting arbitrary records.
 const CookieSchema = z.object({
@@ -108,7 +124,8 @@ sessionsRoutes.post("/", async (c) => {
   } catch (err) {
     const e = err as Error & { status?: number; code?: string };
     const status = (e.status ?? 500) as 409 | 500;
-    return c.json(errBody(e.code ?? (status === 409 ? "already_exists" : "internal_error"), e.message), status);
+    if (status === 409) return c.json(errBody(e.code ?? "already_exists", e.message), status);
+    return c.json(errBody(e.code ?? "internal_error", sanitizeBrowserError(err, "internal_error")), status);
   }
 });
 
@@ -211,7 +228,11 @@ sessionsRoutes.post("/:name/script", async (c) => {
   try {
     // Code runs in page context. Caller is responsible for what they send;
     // this is a debug tool guarded by bearer auth, not a public endpoint.
-    const result = await session.page.evaluate(parsed.data.code);
+    const result = await withTimeout(
+      session.page.evaluate(parsed.data.code),
+      parsed.data.timeoutMs ?? DEFAULT_SCRIPT_TIMEOUT_MS,
+      "script",
+    );
     return c.json({ result });
   } catch (err) {
     // 422: request was well-formed but the eval threw inside the page.
@@ -255,7 +276,7 @@ sessionsRoutes.get("/:name/console", (c) => {
   const parsedLimit = Number.parseInt(c.req.query("limit") ?? "100", 10);
   const requestedLimit = Number.isFinite(parsedLimit) ? parsedLimit : 100;
   const limit = Math.min(Math.max(requestedLimit, 0), env.MAX_CONSOLE_BUFFER, session.consoleBuffer.length);
-  return c.json({ messages: session.consoleBuffer.slice(-limit) });
+  return c.json({ messages: limit === 0 ? [] : session.consoleBuffer.slice(-limit) });
 });
 
 sessionsRoutes.get("/:name/cdp-url", (c) => {

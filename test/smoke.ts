@@ -7,9 +7,6 @@
  *   BROWSER_USE_API_KEY=test-key bun test/smoke.ts
  */
 import { mkdirSync } from "node:fs";
-import { createApp } from "../src/server";
-import { shutdownAllSessions } from "../src/sessions";
-import { shutdownBrowser } from "../src/browser";
 
 const KEY = process.env.BROWSER_USE_API_KEY ?? "test-key";
 process.env.BROWSER_USE_API_KEY = KEY;
@@ -17,6 +14,10 @@ process.env.DEFAULT_HEADLESS ??= "true";
 
 mkdirSync("/tmp/sendblue-browser-use-smoke", { recursive: true });
 process.env.DATA_DIR = "/tmp/sendblue-browser-use-smoke";
+
+const { createApp } = await import("../src/server");
+const { shutdownAllSessions } = await import("../src/sessions");
+const { shutdownBrowser } = await import("../src/browser");
 
 const app = createApp();
 const auth = { authorization: `Bearer ${KEY}`, "content-type": "application/json" };

@@ -28,10 +28,15 @@
   },
   "files": [
     "src",
-    "scripts",
+    "examples",
+    "test",
     "Dockerfile",
+    "docker-entrypoint.sh",
     "docker-compose.yml",
     "README.md",
-    ".env.example"
+    "SECURITY.md",
+    ".env.example",
+    "tsconfig.json",
+    "bun.lock"
   ]
 }

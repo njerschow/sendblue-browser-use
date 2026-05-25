@@ -13,7 +13,7 @@ It runs as its own process — not tied to any one Claude / Cursor / Codex sessi
 | **Reusable sessions** | Named persistent profiles. Log in once, every subsequent debug run reuses the cookies. |
 | **One-click reset** | `POST /sessions/:name/purge` clears cookies + storage but keeps the session id, so your client code keeps working. |
 | **Multi-agent friendly** | Each session is an isolated `BrowserContext` (or its own profile). Run 5+ debug sessions in parallel without state bleed. |
-| **CDP attach** | `GET /sessions/:name/cdp-url` returns a wss URL that Playwright / Puppeteer / any CDP client can `connect()` to. |
+| **CDP attach** | `GET /sessions/:name/cdp-url` returns the shared browser CDP URL for non-persistent sessions, so Playwright / Puppeteer / any CDP client can `connect()` to the debug browser. |
 | **Auto evidence** | Every navigation auto-screenshots into `~/.sendblue-browser-use/runs/<session>/`. Optional Playwright traces. |
 | **HTTP-controlled** | Plain `curl` works. No SDK required. |
 | **Self-contained deploy** | One `docker compose up` on any Mac mini / EC2 / Codespace. No host Chromium needed. |
@@ -76,21 +76,21 @@ All routes require `Authorization: Bearer $BROWSER_USE_API_KEY` except `/health`
 
 | Method | Path | Body / Query | Returns |
 |---|---|---|---|
-| `GET` | `/health` | — | `{ ok, service, version, sessions, cdpUrl }` |
+| `GET` | `/health` | — | `{ ok, service, version, sessions }` |
 | `GET` | `/sessions` | — | `{ sessions: [...] }` |
 | `POST` | `/sessions` | `{ name, persistent?, headless?, viewport?, userAgent?, locale?, timezone?, traces?, proxy? }` | `{ session }` |
 | `GET` | `/sessions/:name` | — | session info + current page url/title |
-| `POST` | `/sessions/:name/purge` | — | clear cookies + storage, keep session id |
+| `POST` | `/sessions/:name/purge` | — | `{ session }` — clear cookies + active-origin storage, keep session id |
 | `DELETE` | `/sessions/:name` | — | `{ ok }` — close context, remove profile |
 | `POST` | `/sessions/:name/navigate` | `{ url, waitUntil?, timeoutMs? }` | `{ url, title, status }` |
 | `GET` | `/sessions/:name/screenshot` | `?fullPage=true&selector=...` | `image/png` |
-| `POST` | `/sessions/:name/script` | `{ code }` (≤200kB) | `{ result }` — code runs in page context |
+| `POST` | `/sessions/:name/script` | `{ code, timeoutMs? }` (≤200kB) | `{ result }` — code runs in page context |
 | `GET` | `/sessions/:name/cookies` | `?url=...` | `{ cookies }` |
 | `POST` | `/sessions/:name/cookies` | `{ cookies: [...] }` | `{ ok }` |
 | `GET` | `/sessions/:name/console` | `?limit=100` | `{ messages: [...] }` (ring buffer) |
 | `GET` | `/sessions/:name/cdp-url` | — | `{ cdpUrl }` — for non-persistent sessions only |
 
-`POST /sessions/:name/script` passes `code` directly to Playwright's `page.evaluate`. Send a JavaScript expression, or wrap statements in an IIFE:
+`POST /sessions/:name/script` passes `code` directly to Playwright's `page.evaluate`. Send a JavaScript expression, or wrap statements in an IIFE. Scripts time out after 30s by default; pass `timeoutMs` up to `120000`, or `0` to disable the request timeout.
 
 ```json
 { "code": "(() => { const x = 1; return x; })()" }
@@ -141,15 +141,17 @@ server-side with proxy credentials redacted.
 
 ```ts
 {
-  name: string;
-  value: string;
-  url?: string;       // or domain + path
-  domain?: string;
-  path?: string;
-  expires?: number;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: "Strict" | "Lax" | "None";
+  cookies: Array<{
+    name: string;
+    value: string;
+    url?: string;       // or domain + path
+    domain?: string;
+    path?: string;
+    expires?: number;
+    httpOnly?: boolean;
+    secure?: boolean;
+    sameSite?: "Strict" | "Lax" | "None";
+  }>;
 }
 ```
 
@@ -158,7 +160,7 @@ Each cookie must include either `url` or both `domain` and `path`.
 ### Persistent vs non-persistent
 
 - **`persistent: true` (default)** — cookies, localStorage, IndexedDB persist under `~/.sendblue-browser-use/profiles/<name>/`. Survives server restart. **CDP attach is not available** for these sessions because each gets its own private browser instance.
-- **`persistent: false`** — shares the central Chromium process via a fresh `BrowserContext`. State is in-memory only. **CDP attach IS available** via `/sessions/:name/cdp-url`.
+- **`persistent: false`** — shares the central Chromium process via a fresh `BrowserContext`. State is in-memory only. **CDP attach IS available** via `/sessions/:name/cdp-url`, which returns the shared browser-level CDP endpoint. CDP clients can see the shared debug browser, so keep the CDP port local and trusted.
 
 Pick persistent for "log in once, debug for a week" workflows. Pick non-persistent when you need to attach Playwright / Puppeteer directly.
 
@@ -197,14 +199,14 @@ Why patchright over alternatives:
         └── 2026-05-25T...-trace.zip # if traces:true at create
 ```
 
-`POST /sessions/:name/purge` clears cookies, permissions, `localStorage`, `sessionStorage`, `IndexedDB`, ServiceWorker registrations, CacheStorage, and the console buffer. It does **not** delete the on-disk profile (so the session id stays valid), and it does not clear browser-level HTTP cache or HSTS state. To wipe the profile too, `DELETE /sessions/:name` and recreate.
+`POST /sessions/:name/purge` clears cookies and permissions context-wide, then clears `localStorage`, `sessionStorage`, `IndexedDB`, ServiceWorker registrations, CacheStorage, and the console buffer for currently open pages/origins. It does **not** enumerate every historical origin in a persistent profile, does not delete the on-disk profile (so the session id stays valid), and does not clear browser-level HTTP cache or HSTS state. To wipe the profile too, `DELETE /sessions/:name` and recreate.
 
 Auto-screenshots are capped at `MAX_NAV_SCREENSHOTS` per session (default 200, oldest deleted first). Set to `0` to disable.
 
 ## Security
 
-- The HTTP API binds to `127.0.0.1` by default. Setting `BIND=0.0.0.0` exposes you to your LAN — put a reverse proxy with auth in front before doing this. The Docker image sets `BIND=0.0.0.0` so the host port-publish works, but `docker-compose.yml` publishes only to `127.0.0.1`. If you `docker run -p 8787:8787` directly, you are choosing to expose it.
-- CDP is bound to `CDP_BIND` (default `127.0.0.1`). Anyone who can reach this port gets full in-browser RCE — keep it on loopback.
+- The HTTP API binds to `127.0.0.1` by default. Setting `BIND=0.0.0.0` exposes you to your LAN — put a reverse proxy with auth in front before doing this. The Docker image sets `BIND=0.0.0.0` so host port-publishing works, but `docker-compose.yml` publishes only to `127.0.0.1`. If you `docker run -p 8787:8787` directly, you are choosing to expose the HTTP API.
+- CDP is bound to `CDP_BIND` (default `127.0.0.1`; the Docker image default is also loopback-only). `docker-compose.yml` opts into `CDP_BIND=0.0.0.0` inside the container but publishes only to `127.0.0.1` on the host. Anyone who can reach this port gets full in-browser RCE — keep it on loopback.
 - `POST /sessions/:name/script` runs arbitrary JS in the page context. The bearer token is the only gate. Don't share the token.
 - `POST /sessions/:name/navigate` only accepts `http(s)` URLs — `file://`, `chrome://`, etc. are rejected.
 - Healthcheck (`GET /health`) is public so Docker/k8s probes work without a token; it returns service metadata only.

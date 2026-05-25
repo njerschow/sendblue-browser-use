@@ -8,6 +8,7 @@ import type { ConsoleMessage, Session, SessionOptions, SessionSummary } from "./
 import { getCdpUrl, getSharedBrowser, onBrowserDisconnected } from "./browser";
 
 const sessions = new Map<string, Session>();
+const creatingSessions = new Set<string>();
 
 let evictTimer: ReturnType<typeof setInterval> | null = null;
 let disconnectUnsub: (() => void) | null = null;
@@ -64,105 +65,113 @@ export function touch(session: Session) {
 }
 
 export async function createSession(options: SessionOptions): Promise<SessionSummary> {
-  if (sessions.has(options.name)) {
+  if (sessions.has(options.name) || creatingSessions.has(options.name)) {
     throw Object.assign(new Error(`session "${options.name}" already exists`), { status: 409 });
   }
-  mkdirSync(profileDir(options.name), { recursive: true });
-  mkdirSync(runsDir(options.name), { recursive: true });
+  creatingSessions.add(options.name);
 
   const persistent = options.persistent !== false;
-  let context: BrowserContext;
+  let context: BrowserContext | undefined;
+  try {
+    mkdirSync(profileDir(options.name), { recursive: true });
+    mkdirSync(runsDir(options.name), { recursive: true });
 
-  if (persistent) {
-    // Persistent context = one-off browser instance backed by an on-disk profile.
-    // We sacrifice the shared CDP attach url for persistent sessions but gain
-    // durable cookies/storage. Use { persistent: false } if you want the shared
-    // CDP url + ephemeral state.
-    const headlessOpt = options.headless ?? env.defaultHeadless;
-    // patchright handles AutomationControlled internally — passing the flag here would defeat it.
-    // Only forward userAgent/viewport when caller explicitly sets them.
-    context = await chromium.launchPersistentContext(profileDir(options.name), {
-      headless: headlessOpt === "new" ? true : headlessOpt,
-      viewport: options.viewport ?? null,
-      ...(options.userAgent ? { userAgent: options.userAgent } : {}),
-      locale: options.locale ?? "en-US",
-      timezoneId: options.timezone,
-      proxy: options.proxy,
-      acceptDownloads: true,
-      args: ["--no-first-run", "--no-default-browser-check", ...env.chromiumArgs],
+    if (persistent) {
+      // Persistent context = one-off browser instance backed by an on-disk profile.
+      // We sacrifice the shared CDP attach url for persistent sessions but gain
+      // durable cookies/storage. Use { persistent: false } if you want the shared
+      // CDP url + ephemeral state.
+      const headlessOpt = options.headless ?? env.defaultHeadless;
+      // patchright handles AutomationControlled internally — passing the flag here would defeat it.
+      // Only forward userAgent/viewport when caller explicitly sets them.
+      context = await chromium.launchPersistentContext(profileDir(options.name), {
+        headless: headlessOpt === "new" ? true : headlessOpt,
+        viewport: options.viewport ?? null,
+        ...(options.userAgent ? { userAgent: options.userAgent } : {}),
+        locale: options.locale ?? "en-US",
+        timezoneId: options.timezone,
+        proxy: options.proxy,
+        acceptDownloads: true,
+        args: ["--no-first-run", "--no-default-browser-check", ...env.chromiumArgs],
+      });
+    } else {
+      const browser = await getSharedBrowser();
+      context = await browser.newContext({
+        viewport: options.viewport ?? null,
+        ...(options.userAgent ? { userAgent: options.userAgent } : {}),
+        locale: options.locale ?? "en-US",
+        timezoneId: options.timezone,
+        proxy: options.proxy,
+        acceptDownloads: true,
+      });
+    }
+
+    const page = context.pages()[0] ?? (await context.newPage());
+
+    if (options.traces) {
+      await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+    }
+
+    const session: Session = {
+      name: options.name,
+      persistent,
+      context,
+      page,
+      createdAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+      consoleBuffer: [],
+      navScreenshotPaths: [],
+      runsDir: runsDir(options.name),
+      options,
+      cdpUrl: persistent ? undefined : (getCdpUrl() ?? undefined),
+    };
+
+    // Capture console messages into a ring buffer.
+    page.on("console", (msg) => {
+      pushConsole(session, {
+        t: new Date().toISOString(),
+        type: msg.type(),
+        text: msg.text(),
+        url: page.url(),
+      });
     });
-  } else {
-    const browser = await getSharedBrowser();
-    context = await browser.newContext({
-      viewport: options.viewport ?? null,
-      ...(options.userAgent ? { userAgent: options.userAgent } : {}),
-      locale: options.locale ?? "en-US",
-      timezoneId: options.timezone,
-      proxy: options.proxy,
-      acceptDownloads: true,
+    page.on("pageerror", (err) => {
+      pushConsole(session, {
+        t: new Date().toISOString(),
+        type: "pageerror",
+        text: err.message,
+        url: page.url(),
+      });
     });
+
+    // Auto-screenshot on every navigation, capped at MAX_NAV_SCREENSHOTS per session
+    // so a long-lived nav-heavy run can't fill the host disk. 0 disables.
+    if (env.MAX_NAV_SCREENSHOTS > 0) {
+      page.on("framenavigated", (frame) => {
+        if (frame !== page.mainFrame()) return;
+        const ts = new Date().toISOString().replace(/[:.]/g, "-");
+        const filePath = join(session.runsDir, `${ts}-nav.png`);
+        page.screenshot({ path: filePath, fullPage: false })
+          .then(() => {
+            session.navScreenshotPaths.push(filePath);
+            while (session.navScreenshotPaths.length > env.MAX_NAV_SCREENSHOTS) {
+              const oldest = session.navScreenshotPaths.shift();
+              if (oldest) try { unlinkSync(oldest); } catch {}
+            }
+          })
+          .catch(() => {});
+      });
+    }
+
+    sessions.set(options.name, session);
+    log.info("session created", { name: options.name, persistent });
+    return summarise(session);
+  } catch (err) {
+    await context?.close().catch(() => {});
+    throw err;
+  } finally {
+    creatingSessions.delete(options.name);
   }
-
-  const page = context.pages()[0] ?? (await context.newPage());
-
-  if (options.traces) {
-    await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
-  }
-
-  const session: Session = {
-    name: options.name,
-    persistent,
-    context,
-    page,
-    createdAt: new Date().toISOString(),
-    lastUsedAt: new Date().toISOString(),
-    consoleBuffer: [],
-    navScreenshotPaths: [],
-    runsDir: runsDir(options.name),
-    options,
-    cdpUrl: persistent ? undefined : (getCdpUrl() ?? undefined),
-  };
-
-  // Capture console messages into a ring buffer.
-  page.on("console", (msg) => {
-    pushConsole(session, {
-      t: new Date().toISOString(),
-      type: msg.type(),
-      text: msg.text(),
-      url: page.url(),
-    });
-  });
-  page.on("pageerror", (err) => {
-    pushConsole(session, {
-      t: new Date().toISOString(),
-      type: "pageerror",
-      text: err.message,
-      url: page.url(),
-    });
-  });
-
-  // Auto-screenshot on every navigation, capped at MAX_NAV_SCREENSHOTS per session
-  // so a long-lived nav-heavy run can't fill the host disk. 0 disables.
-  if (env.MAX_NAV_SCREENSHOTS > 0) {
-    page.on("framenavigated", (frame) => {
-      if (frame !== page.mainFrame()) return;
-      const ts = new Date().toISOString().replace(/[:.]/g, "-");
-      const filePath = join(session.runsDir, `${ts}-nav.png`);
-      page.screenshot({ path: filePath, fullPage: false })
-        .then(() => {
-          session.navScreenshotPaths.push(filePath);
-          while (session.navScreenshotPaths.length > env.MAX_NAV_SCREENSHOTS) {
-            const oldest = session.navScreenshotPaths.shift();
-            if (oldest) try { unlinkSync(oldest); } catch {}
-          }
-        })
-        .catch(() => {});
-    });
-  }
-
-  sessions.set(options.name, session);
-  log.info("session created", { name: options.name, persistent });
-  return summarise(session);
 }
 
 export async function purgeSession(name: string): Promise<SessionSummary> {

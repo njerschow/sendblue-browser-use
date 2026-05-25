@@ -63,9 +63,10 @@ export async function getSharedBrowser(): Promise<Browser> {
         try { fn(); } catch (err) { log.error("disconnect_listener_failed", { err: String(err) }); }
       }
     });
-    launching = null;
     return browser;
-  })();
+  })().finally(() => {
+    launching = null;
+  });
   return launching;
 }
 

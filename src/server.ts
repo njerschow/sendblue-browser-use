@@ -3,7 +3,7 @@ import { env } from "./env";
 import { requireAuth } from "./auth";
 import { sessionsRoutes } from "./routes/sessions";
 import { listSessions, startIdleEviction, stopIdleEviction, shutdownAllSessions } from "./sessions";
-import { getCdpUrl, shutdownBrowser } from "./browser";
+import { shutdownBrowser } from "./browser";
 import { log } from "./lib/logger";
 
 export function createApp() {
@@ -16,7 +16,6 @@ export function createApp() {
       service: "sendblue-browser-use",
       version: "0.2.0",
       sessions: listSessions().length,
-      cdpUrl: getCdpUrl(),
     });
   });
 
