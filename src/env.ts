@@ -7,6 +7,7 @@ const Schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   BIND: z.string().default("127.0.0.1"),
   CDP_PORT: z.coerce.number().int().min(1).max(65535).default(9222),
+  CDP_BIND: z.string().default("127.0.0.1"),
   DATA_DIR: z.string().default(`${homedir()}/.sendblue-browser-use`),
   DEFAULT_HEADLESS: z.enum(["true", "false", "new"]).default("false"),
   IDLE_SESSION_MINUTES: z.coerce.number().int().min(0).default(120),

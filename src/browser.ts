@@ -20,14 +20,15 @@ export async function getSharedBrowser(): Promise<Browser> {
   if (launching) return launching;
   launching = (async () => {
     log.info("launching shared chromium", { cdpPort: env.CDP_PORT, headless: env.defaultHeadless });
+    // patchright sets its own anti-detection flags; do NOT pass
+    // --disable-blink-features=AutomationControlled — it defeats patchright's patches.
     const browser = await chromium.launch({
       headless: env.defaultHeadless === "new" ? true : env.defaultHeadless,
       args: [
         `--remote-debugging-port=${env.CDP_PORT}`,
-        "--remote-debugging-address=127.0.0.1",
+        `--remote-debugging-address=${env.CDP_BIND}`,
         "--no-first-run",
         "--no-default-browser-check",
-        "--disable-blink-features=AutomationControlled",
         ...env.chromiumArgs,
       ],
     });

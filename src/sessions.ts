@@ -65,26 +65,23 @@ export async function createSession(options: SessionOptions): Promise<SessionSum
     // durable cookies/storage. Use { persistent: false } if you want the shared
     // CDP url + ephemeral state.
     const headlessOpt = options.headless ?? env.defaultHeadless;
+    // patchright handles AutomationControlled internally — passing the flag here would defeat it.
+    // Only forward userAgent/viewport when caller explicitly sets them.
     context = await chromium.launchPersistentContext(profileDir(options.name), {
       headless: headlessOpt === "new" ? true : headlessOpt,
       viewport: options.viewport ?? null,
-      userAgent: options.userAgent,
+      ...(options.userAgent ? { userAgent: options.userAgent } : {}),
       locale: options.locale ?? "en-US",
       timezoneId: options.timezone,
       proxy: options.proxy,
       acceptDownloads: true,
-      args: [
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-blink-features=AutomationControlled",
-        ...env.chromiumArgs,
-      ],
+      args: ["--no-first-run", "--no-default-browser-check", ...env.chromiumArgs],
     });
   } else {
     const browser = await getSharedBrowser();
     context = await browser.newContext({
       viewport: options.viewport ?? null,
-      userAgent: options.userAgent,
+      ...(options.userAgent ? { userAgent: options.userAgent } : {}),
       locale: options.locale ?? "en-US",
       timezoneId: options.timezone,
       proxy: options.proxy,
