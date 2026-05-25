@@ -72,19 +72,42 @@ All routes require `Authorization: Bearer $BROWSER_USE_API_KEY` except `/health`
 
 | Method | Path | Body / Query | Returns |
 |---|---|---|---|
-| `GET` | `/health` | — | `{ ok, sessions, cdpUrl }` |
+| `GET` | `/health` | — | `{ ok, service, version, sessions, cdpUrl }` |
 | `GET` | `/sessions` | — | `{ sessions: [...] }` |
 | `POST` | `/sessions` | `{ name, persistent?, headless?, viewport?, userAgent?, locale?, timezone?, traces?, proxy? }` | `{ session }` |
 | `GET` | `/sessions/:name` | — | session info + current page url/title |
 | `POST` | `/sessions/:name/purge` | — | clear cookies + storage, keep session id |
 | `DELETE` | `/sessions/:name` | — | close context, remove profile |
-| `POST` | `/sessions/:name/navigate` | `{ url, waitUntil? }` | `{ url, title, status }` |
+| `POST` | `/sessions/:name/navigate` | `{ url, waitUntil?, timeoutMs? }` | `{ url, title, status }` |
 | `GET` | `/sessions/:name/screenshot` | `?fullPage=true&selector=...` | `image/png` |
-| `POST` | `/sessions/:name/script` | `{ code }` | `{ result }` — code runs in page context |
+| `POST` | `/sessions/:name/script` | `{ code }` (≤200kB) | `{ result }` — code runs in page context |
 | `GET` | `/sessions/:name/cookies` | `?url=...` | `{ cookies }` |
 | `POST` | `/sessions/:name/cookies` | `{ cookies: [...] }` | `{ ok }` |
 | `GET` | `/sessions/:name/console` | `?limit=100` | `{ messages: [...] }` (ring buffer) |
 | `GET` | `/sessions/:name/cdp-url` | — | `{ cdpUrl }` — for non-persistent sessions only |
+
+### Errors
+
+All non-2xx responses share the same envelope. Failures from Playwright are
+truncated to one line before being returned; the full message is logged
+server-side.
+
+```json
+{ "error": { "code": "navigate_failed", "message": "net::ERR_NAME_NOT_RESOLVED" } }
+```
+
+| Status | Code | Meaning |
+|---|---|---|
+| 400 | `empty_body` | request body is required but was missing |
+| 400 | `malformed_json` | body was not valid JSON |
+| 400 | `invalid_body` | body failed Zod validation (see `error.details`) |
+| 401 | `unauthorized` | missing or wrong bearer token |
+| 404 | `not_found` | session does not exist |
+| 409 | `already_exists` | a session with that name is already running |
+| 409 | `cdp_unavailable_for_persistent_session` | persistent sessions don't expose the shared CDP url |
+| 422 | `script_failed` | `/script` request was valid but the in-page eval threw |
+| 500 | `internal_error` | unexpected — check server logs |
+| 502 | `navigate_failed` `screenshot_failed` `cookie_read_failed` `cookie_write_failed` `session_unreachable` | Chromium-side failure |
 
 ### Session options
 
@@ -125,7 +148,12 @@ This is built on [`patchright`](https://github.com/Kaliiiiiiiiii-Vinyzu/patchrig
 - Drops Playwright-specific extensions and command flags
 - Uses real Chromium so most fingerprint surfaces match a normal user
 
-Sufficient for QAing your own sites against real auth providers (Clerk, Stripe, Google OAuth, Cloudflare). It is **not** a tool for hostile scraping at scale — for that use [Camoufox](https://github.com/daijro/camoufox).
+We deliberately do **not** pass `--disable-blink-features=AutomationControlled` or override `userAgent`/`viewport` by default — patchright handles those internally and our overrides would defeat its rebrowser patches. Pass an explicit `userAgent` per session only if you have a reason.
+
+Why patchright over alternatives:
+
+- **vs `nodriver` / `undetected-playwright`** — patchright is actively maintained, matches Playwright's API surface, and integrates cleanly with the existing TypeScript ecosystem.
+- **vs [Camoufox](https://github.com/daijro/camoufox)** — Camoufox uses Firefox with deeper fingerprint randomization, better for hostile scraping at scale. patchright is the right pick for QAing your own auth flows (Clerk, Stripe, Google OAuth, Cloudflare Turnstile) without the maintenance burden.
 
 ## Storage
 
@@ -139,13 +167,17 @@ Sufficient for QAing your own sites against real auth providers (Clerk, Stripe, 
         └── 2026-05-25T...-trace.zip # if traces:true at create
 ```
 
-`POST /sessions/:name/purge` clears cookies + storage + console buffer. It does **not** delete the on-disk profile (so the session id stays valid). To wipe the profile too, `DELETE /sessions/:name` and recreate.
+`POST /sessions/:name/purge` clears cookies, permissions, `localStorage`, `sessionStorage`, `IndexedDB`, ServiceWorker registrations, CacheStorage, and the console buffer. It does **not** delete the on-disk profile (so the session id stays valid). To wipe the profile too, `DELETE /sessions/:name` and recreate.
+
+Auto-screenshots are capped at `MAX_NAV_SCREENSHOTS` per session (default 200, oldest deleted first). Set to `0` to disable.
 
 ## Security
 
-- Bind to `127.0.0.1` by default. Setting `BIND=0.0.0.0` exposes you to your LAN — put a reverse proxy with auth in front before doing this.
+- The HTTP API binds to `127.0.0.1` by default. Setting `BIND=0.0.0.0` exposes you to your LAN — put a reverse proxy with auth in front before doing this. The Docker image sets `BIND=0.0.0.0` so the host port-publish works, but `docker-compose.yml` publishes only to `127.0.0.1`. If you `docker run -p 8787:8787` directly, you are choosing to expose it.
+- CDP is bound to `CDP_BIND` (default `127.0.0.1`). Anyone who can reach this port gets full in-browser RCE — keep it on loopback.
 - `POST /sessions/:name/script` runs arbitrary JS in the page context. The bearer token is the only gate. Don't share the token.
-- CDP port is bound to `127.0.0.1` always.
+- `POST /sessions/:name/navigate` only accepts `http(s)` URLs — `file://`, `chrome://`, etc. are rejected.
+- Healthcheck (`GET /health`) is public so Docker/k8s probes work without a token; it returns service metadata only.
 
 ## Architecture
 
