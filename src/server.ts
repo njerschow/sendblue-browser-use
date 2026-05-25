@@ -42,6 +42,7 @@ export async function startServer() {
   });
   log.info("server listening", { url: `http://${server.hostname}:${server.port}`, dataDir: env.dataDir });
 
+  // Keep the daemon observable for transient Chromium callbacks; supervisors can still restart on fatal exits.
   process.on("uncaughtException", (err) => {
     log.error("uncaught_exception", { err: err.message, stack: err.stack });
   });
